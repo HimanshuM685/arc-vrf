@@ -351,6 +351,16 @@ contract ArcVRFCoordinator is VRF, SubscriptionAPI, IArcVRFCoordinator, ITypeAnd
       revert MsgDataTooBig(msg.data.length, 804);
     }
     Output memory output = _getRandomnessFromProof(proof, rc);
+
+    // The subscription was force-cancelled (ownerCancelSubscription) while this request was pending.
+    // Nothing can pay and the consumer's bookkeeping is gone: clear the commitment so the request
+    // doesn't stay unfulfillable forever, and skip delivery.
+    if (s_subscriptionConfigs[rc.subId].owner == address(0)) {
+      delete s_requestCommitments[output.requestId];
+      emit RandomWordsFulfilled(output.requestId, output.randomness, rc.subId, 0, true, false, onlyPremium);
+      return 0;
+    }
+
     uint256 gasPrice = _getValidatedGasPrice(onlyPremium, output.provingKey.maxGas);
 
     uint256[] memory randomWords;

@@ -69,7 +69,7 @@ abstract contract SubscriptionAPI is ConfirmedOwner, IArcVRFSubscription {
   event SubscriptionOwnerTransferRequested(uint256 indexed subId, address from, address to);
   event SubscriptionOwnerTransferred(uint256 indexed subId, address from, address to);
   event RefundDeferred(address indexed to, uint256 amount);
-  event RefundWithdrawn(address indexed to, uint256 amount);
+  event RefundWithdrawn(address indexed holder, address recipient, uint256 amount);
 
   struct Config {
     uint16 minimumRequestConfirmations;
@@ -146,14 +146,16 @@ abstract contract SubscriptionAPI is ConfirmedOwner, IArcVRFSubscription {
     return s_withdrawableNative;
   }
 
-  /// @notice Claim a cancellation refund whose push transfer failed.
-  function withdrawRefund() external nonReentrant {
+  /// @notice Claim a cancellation refund whose push transfer failed, sending it to any address
+  /// (the refund holder may itself be unable to receive native USDC).
+  function withdrawRefund(address payable recipient) external nonReentrant {
+    if (recipient == address(0)) revert ZeroAddressRecipient();
     uint256 amount = s_pendingRefunds[msg.sender];
     _requireSufficientBalance(amount > 0);
     s_pendingRefunds[msg.sender] = 0;
     s_totalNativeBalance -= uint96(amount);
-    _mustSendNative(msg.sender, amount);
-    emit RefundWithdrawn(msg.sender, amount);
+    _mustSendNative(recipient, amount);
+    emit RefundWithdrawn(msg.sender, recipient, amount);
   }
 
   function fundSubscriptionWithNative(uint256 subId) external payable override nonReentrant {

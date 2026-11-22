@@ -4,7 +4,7 @@
   "packageManager": "pnpm@10.18.0",
   "scripts": {
     "contracts:build": "cd contracts && forge build",
-    "contracts:test": "cd contracts && forge test",
+    "contracts:test": "cd contracts && forge test --ffi",
     "dev": "pnpm --filter web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",

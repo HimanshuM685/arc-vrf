@@ -189,9 +189,9 @@ contract ArcVRFWrapper is ArcVRFConsumerBase, ITypeAndVersion, IArcVRFWrapper {
     uint32 _numWords,
     bytes calldata extraArgs
   ) external payable override onlyConfiguredNotDisabled returns (uint256 requestId) {
+    if (_numWords > s_maxNumWords) revert NumWordsTooHigh(_numWords, s_maxNumWords);
     uint256 price = _calculateRequestPriceNative(_callbackGasLimit, _numWords, tx.gasprice);
     if (msg.value < price) revert FeeTooLow(msg.value, price);
-    if (_numWords > s_maxNumWords) revert NumWordsTooHigh(_numWords, s_maxNumWords);
     uint32 eip150Overhead = _getEIP150Overhead(_callbackGasLimit);
     ArcVRFClient.RandomWordsRequest memory req = ArcVRFClient.RandomWordsRequest({
       keyHash: s_keyHash,
@@ -250,8 +250,9 @@ contract ArcVRFWrapper is ArcVRFConsumerBase, ITypeAndVersion, IArcVRFWrapper {
     return gas / 63 + 1;
   }
 
-  function _getCoordinatorGasOverhead(uint32 numWords) internal view returns (uint32) {
-    return s_coordinatorGasOverheadNative + numWords * s_coordinatorGasOverheadPerWord;
+  /// @dev uint256 so quoting a large numWords can't overflow (callers check maxNumWords separately).
+  function _getCoordinatorGasOverhead(uint32 numWords) internal view returns (uint256) {
+    return uint256(s_coordinatorGasOverheadNative) + uint256(numWords) * s_coordinatorGasOverheadPerWord;
   }
 
   function _callWithExactGas(uint256 gasAmount, address target, bytes memory data) private returns (bool success) {

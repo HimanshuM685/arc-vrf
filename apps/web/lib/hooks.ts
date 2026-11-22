@@ -29,23 +29,33 @@ export async function getLogsAdaptive<E extends AbiEvent>(
   return run(params.fromBlock, toBlock, 0)
 }
 
+// Logs already read, per query: each poll only fetches blocks after `to`. Arc has instant
+// finality and no reorgs, so cached logs never need re-reading.
+const logCache = new Map<string, { to: bigint; logs: Log[] }>()
+
 export function useLogs<E extends AbiEvent>(
   key: unknown[],
   params: { address?: Address; event: E; args?: Record<string, unknown>; fromBlock?: number },
   opts: { refetchMs?: number; enabled?: boolean } = {},
 ) {
   const client = usePublicClient()
+  const queryKey = ['logs', client?.chain.id, params.address, params.fromBlock, ...key]
   return useQuery({
-    queryKey: ['logs', client?.chain.id, params.address, ...key],
+    queryKey,
     enabled: !!client && !!params.address && opts.enabled !== false,
     refetchInterval: opts.refetchMs ?? 4000,
-    queryFn: () =>
-      getLogsAdaptive(client as PublicClient, {
-        address: params.address!,
-        event: params.event,
-        args: params.args,
-        fromBlock: BigInt(params.fromBlock ?? 0),
-      }),
+    queryFn: async () => {
+      const c = client as PublicClient
+      const cacheKey = JSON.stringify(queryKey, (_, v) => (typeof v === 'bigint' ? v.toString() : v))
+      const cached = logCache.get(cacheKey)
+      const from = cached ? cached.to + 1n : BigInt(params.fromBlock ?? 0)
+      const head = await c.getBlockNumber()
+      if (from > head) return (cached?.logs ?? []) as Log<bigint, number, false, E>[]
+      const fresh = await getLogsAdaptive(c, { address: params.address!, event: params.event, args: params.args, fromBlock: from, toBlock: head })
+      const logs = [...(cached?.logs ?? []), ...(fresh as Log[])]
+      logCache.set(cacheKey, { to: head, logs })
+      return logs as Log<bigint, number, false, E>[]
+    },
   })
 }
 

@@ -777,7 +777,13 @@ export const arcVRFCoordinatorAbi = [
   {
     "type": "function",
     "name": "withdrawRefund",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "recipient",
+        "type": "address",
+        "internalType": "address payable"
+      }
+    ],
     "outputs": [],
     "stateMutability": "nonpayable"
   },
@@ -1060,9 +1066,15 @@ export const arcVRFCoordinatorAbi = [
     "name": "RefundWithdrawn",
     "inputs": [
       {
-        "name": "to",
+        "name": "holder",
         "type": "address",
         "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "recipient",
+        "type": "address",
+        "indexed": false,
         "internalType": "address"
       },
       {
@@ -2750,7 +2762,13 @@ export const diceDirectAbi = [
   {
     "type": "function",
     "name": "quote",
-    "inputs": [],
+    "inputs": [
+      {
+        "name": "gasPriceWei",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
     "outputs": [
       {
         "name": "",
@@ -2862,6 +2880,22 @@ export const diceDirectAbi = [
   },
   {
     "type": "error",
+    "name": "InsufficientPayment",
+    "inputs": [
+      {
+        "name": "paid",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "price",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "OnlyVRFWrapperCanFulfill",
     "inputs": [
       {
@@ -2890,10 +2924,10 @@ export const deployments = {
     "coordinator": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
     "batchCoordinator": "0xdc64a140aa3e981100a9beca4e685f962f0cf6c9",
     "wrapper": "0xa513e6e4b8f2a923d98304ec87f64353c4d5c853",
-    "wrapperSubId": "95077100622240873383460834245326729910264989266853919786103620171237220497274",
+    "wrapperSubId": "26209185067744196376124851497461953945452121972115394090099957143203744398958",
     "keyHash": "0xea861df8969ac2eb069eafe2740a3a6e40c52d2b7e32eccffe643c4d9daabb5b",
     "hiLoGame": "0xa51c1fc2f0d1a1b8494ed1fe312d7c3a78ed91c0",
-    "hiLoSubId": "102837711829649947498296306828067119805112057896397626293256852502331276295606",
+    "hiLoSubId": "70372395805932116870528463581602128502318348347935361148452449266982112100576",
     "diceDirect": "0x9a676e781a523b5d0c0e43731313a708cb607508",
     "deployBlock": 0
   }

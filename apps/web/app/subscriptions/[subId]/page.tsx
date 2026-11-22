@@ -3,7 +3,7 @@ import { arcVRFCoordinatorAbi, subscriptionMaxCost } from '@arc-vrf/sdk'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
-import { isAddress, parseEther, type Address } from 'viem'
+import { BaseError, ContractFunctionRevertedError, isAddress, parseEther, type Address } from 'viem'
 import { useAccount, useChains, useReadContracts } from 'wagmi'
 import { Addr, Badge, Button, Fields, Input, NotDeployed, PageHead, Panel, TxNote } from '@/components/ui'
 import { ev } from '@/lib/events'
@@ -39,6 +39,16 @@ export default function SubscriptionPage() {
 
   const [subR, pendingR, reqOwnerR, cfgR, laneR, refundR] = reads.data ?? []
   const refund = refundR?.result as bigint | undefined
+  if (subR?.status === 'failure' && !isInvalidSubscription(subR.error)) {
+    return (
+      <>
+        <PageHead title="Couldn’t read this subscription">
+          The network didn’t answer: {(subR.error as { shortMessage?: string }).shortMessage ?? 'RPC error'}. This page retries
+          automatically.
+        </PageHead>
+      </>
+    )
+  }
   if (subR?.status === 'failure') {
     return (
       <>
@@ -147,7 +157,7 @@ function Consumers({ subId, consumers, isOwner, pending, explorer }: { subId: bi
           className="mt-5 flex flex-wrap items-end gap-3 border-t border-rule pt-5"
           onSubmit={(e) => {
             e.preventDefault()
-            if (isAddress(next)) call('addConsumer', next).then(() => setNext(''))
+            if (isAddress(next)) call('addConsumer', next).then((r) => r && setNext(''))
           }}
         >
           <div className="min-w-0 flex-1 basis-64">
@@ -243,12 +253,13 @@ function Ownership({ subId, isOwner, requestedOwner, pending }: { subId: bigint;
 
 function RefundPanel({ amount }: { amount: bigint }) {
   const { deployment: d } = useDeployment()
+  const { address } = useAccount()
   const tx = useTx()
   return (
     <Panel title="Refund waiting">
       <p>A cancellation refund of {usdc(amount)} USDC couldn’t be sent to your address automatically, so it’s held for you.</p>
       <div className="mt-4">
-        <Button onClick={() => tx.send({ address: d!.coordinator, abi: arcVRFCoordinatorAbi, functionName: 'withdrawRefund' })}>Withdraw refund</Button>
+        <Button onClick={() => tx.send({ address: d!.coordinator, abi: arcVRFCoordinatorAbi, functionName: 'withdrawRefund', args: [address] })}>Withdraw to my address</Button>
       </div>
       <TxNote tx={tx} done="Refund withdrawn." />
     </Panel>
@@ -301,4 +312,11 @@ function History({ subId }: { subId: bigint }) {
       )}
     </section>
   )
+}
+
+/** True only when the coordinator itself said the subscription doesn't exist (not an RPC failure). */
+function isInvalidSubscription(e: unknown): boolean {
+  const reverted =
+    e instanceof BaseError ? e.walk((x) => x instanceof ContractFunctionRevertedError) : undefined
+  return reverted instanceof ContractFunctionRevertedError && reverted.data?.errorName === 'InvalidSubscription'
 }

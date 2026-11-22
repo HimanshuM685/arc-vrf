@@ -35,8 +35,8 @@ contract Blocked {
     revert("blocked");
   }
 
-  function claim(ArcVRFCoordinator c) external {
-    c.withdrawRefund();
+  function claim(ArcVRFCoordinator c, address payable to) external {
+    c.withdrawRefund(to);
   }
 }
 
@@ -319,11 +319,30 @@ contract ArcVRFTest is Test {
     coord.cancelSubscription(sub2, address(blocked)); // does not revert
     assertEq(coord.s_pendingRefunds(address(blocked)), 2 ether);
 
+    // can't be paid to itself...
     vm.expectRevert(SubscriptionAPI.FailedToSendNative.selector);
-    blocked.claim(coord);
+    blocked.claim(coord, payable(address(blocked)));
+    // ...but can be redirected anywhere
+    address payable rescue = payable(makeAddr("rescue"));
+    blocked.claim(coord, rescue);
+    assertEq(rescue.balance, 2 ether);
+    assertEq(coord.s_pendingRefunds(address(blocked)), 0);
+    vm.expectRevert(SubscriptionAPI.InsufficientBalance.selector);
+    blocked.claim(coord, rescue);
 
     vm.expectRevert(SubscriptionAPI.ZeroAddressRecipient.selector);
     coord.cancelSubscription(subId, address(0));
+  }
+
+  function test_OwnerCancelWithPending_FulfilClearsCommitment() public {
+    vm.recordLogs();
+    game.play(HiLoGame.Guess.Hi);
+    Req memory r = _lastRequest();
+    coord.ownerCancelSubscription(subId);
+    uint96 payment = _fulfil(r);
+    assertEq(payment, 0);
+    assertEq(coord.s_requestCommitments(r.requestId), bytes32(0));
+    assertEq(coord.withdrawableNative(), 0);
   }
 
   function test_RecoverNativeFunds() public {
@@ -439,6 +458,24 @@ contract ArcVRFTest is Test {
     bytes memory link = ArcVRFClient._argsToBytes(ArcVRFClient.ExtraArgsV1({nativePayment: false}));
     vm.expectRevert(ArcVRFCoordinator.LinkPaymentNotSupported.selector);
     w.requestRandomWordsInNative{value: price}(100_000, 0, 1, link);
+  }
+
+  function test_Wrapper_HugeNumWordsRevertsCleanly() public {
+    (ArcVRFWrapper w,) = _wrapper();
+    vm.expectRevert(abi.encodeWithSelector(ArcVRFWrapper.NumWordsTooHigh.selector, type(uint32).max, 10));
+    w.requestRandomWordsInNative{value: 1 ether}(100_000, 0, type(uint32).max, "");
+    assertGt(w.estimateRequestPriceNative(100_000, type(uint32).max, 20 gwei), 0); // no overflow
+  }
+
+  function test_Dice_CannotSpendStrayBalance() public {
+    (ArcVRFWrapper w,) = _wrapper();
+    DiceDirect dice = new DiceDirect(address(w));
+    vm.deal(address(dice), 1 ether); // stray USDC in the sample contract
+    vm.txGasPrice(GAS_PRICE);
+    uint256 price = w.calculateRequestPriceNative(dice.CALLBACK_GAS_LIMIT(), 1);
+    assertEq(dice.quote(GAS_PRICE), price);
+    vm.expectRevert(abi.encodeWithSelector(DiceDirect.InsufficientPayment.selector, 0, price));
+    dice.roll();
   }
 
   function test_Wrapper_FailingCallbackEmitsEvent() public {

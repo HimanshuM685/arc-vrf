@@ -30,10 +30,13 @@ type Pending = {
   blockNumber: bigint
   blockHash: Hex
   attempts: number
+  nextTryAt: number // ms timestamp; failed requests back off instead of being dropped
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-const MAX_ATTEMPTS = 5
+// A request is only ever dropped once its on-chain commitment is gone (fulfilled). Until then,
+// failures (RPC outage, underfunded subscription, gas above the lane cap) retry with backoff.
+const backoffMs = (attempts: number) => Math.min(60_000, 1_000 * 2 ** Math.min(attempts, 6))
 
 export async function runOracle(o: OracleOptions) {
   const { chain, publicClient, walletClient } = await connect(o.rpcUrl, o.txAccount)
@@ -80,6 +83,7 @@ export async function runOracle(o: OracleOptions) {
             blockNumber: l.blockNumber,
             blockHash: l.blockHash,
             attempts: 0,
+            nextTryAt: 0,
           })
           log(`request ${short(a.requestId!)} from ${a.sender} (sub ${short(a.subId!)}, ${a.numWords} words)`)
         }
@@ -87,11 +91,11 @@ export async function runOracle(o: OracleOptions) {
       }
 
       for (const r of [...pending.values()]) {
-        if (head < r.blockNumber + BigInt(r.confirmations)) continue
+        if (head < r.blockNumber + BigInt(r.confirmations) || Date.now() < r.nextTryAt) continue
         await fulfil(r).catch((e) => {
           r.attempts++
-          log(`fulfil ${short(r.requestId)} failed (attempt ${r.attempts}): ${(e as Error).message.split('\n')[0]}`)
-          if (r.attempts >= MAX_ATTEMPTS) pending.delete(r.requestId)
+          r.nextTryAt = Date.now() + backoffMs(r.attempts)
+          log(`fulfil ${short(r.requestId)} failed (attempt ${r.attempts}, retrying in ${backoffMs(r.attempts) / 1000}s): ${(e as Error).message.split('\n')[0]}`)
         })
       }
 

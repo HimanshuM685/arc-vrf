@@ -1,0 +1,15 @@
+Arc VRF
+
+This project contains code derived from Chainlink VRF v2.5
+(https://github.com/smartcontractkit/chainlink-evm, commit
+e162754ee3348c8c44a691669f710a06761dd67f, contracts/src/v0.8/vrf/), and from
+Chainlink's Go VRF proof code (smartcontractkit/chainlink-common
+keystore/corekeys/vrfkey and smartcontractkit/chainlink
+core/services/vrf/proof). Those source files carry the MIT license, and the
+derived files keep their MIT headers and note what changed.
+
+Note: the @chainlink/contracts npm package declares BUSL-1.1 at package level.
+Get a legal review before production use. This project is not affiliated with
+or endorsed by Chainlink Labs.
+
+contracts/src/vendor/EnumerableSet.sol is from OpenZeppelin Contracts v4.9.6 (MIT).

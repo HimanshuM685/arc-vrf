@@ -1,0 +1,19 @@
+{
+  "name": "arc-vrf",
+  "private": true,
+  "packageManager": "pnpm@10.18.0",
+  "scripts": {
+    "contracts:build": "cd contracts && forge build",
+    "contracts:test": "cd contracts && forge test",
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "node": "pnpm --filter @arc-vrf/node start",
+    "e2e": "pnpm --filter @arc-vrf/node e2e"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}

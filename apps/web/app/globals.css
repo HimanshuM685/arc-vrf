@@ -1,0 +1,81 @@
+@import "tailwindcss";
+@import "@rainbow-me/rainbowkit/styles.css";
+
+/* Tokens. Cool slate paper, lane blue for actions, verdigris for "verified", amber for "waiting". */
+:root {
+  --paper: #f2f4f1;
+  --panel: #fbfcfa;
+  --ink: #14202b;
+  --muted: #5b6874;
+  --rule: #cdd5da;
+  --lane: #2b59c3;
+  --lane-ink: #ffffff;
+  --verified: #2f8f83;
+  --waiting: #b07a10;
+  --fault: #b5432f;
+  --code: #e7ebe6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1820;
+    --panel: #15212b;
+    --ink: #e3e9ed;
+    --muted: #93a1ad;
+    --rule: #2a3946;
+    --lane: #7d9ff0;
+    --lane-ink: #0f1820;
+    --verified: #5cc0b2;
+    --waiting: #e0a93c;
+    --fault: #ec8370;
+    --code: #1b2933;
+  }
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-panel: var(--panel);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-rule: var(--rule);
+  --color-lane: var(--lane);
+  --color-lane-ink: var(--lane-ink);
+  --color-verified: var(--verified);
+  --color-waiting: var(--waiting);
+  --color-fault: var(--fault);
+  --color-code: var(--code);
+  --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+html { background: var(--paper); color: var(--ink); }
+body { background: var(--paper); color: var(--ink); font-feature-settings: "ss01"; }
+:focus-visible { outline: 2px solid var(--lane); outline-offset: 2px; border-radius: 3px; }
+::selection { background: color-mix(in srgb, var(--lane) 25%, transparent); }
+
+/* Hex values break anywhere rather than overflow on small screens. */
+.hex { font-family: var(--font-mono); overflow-wrap: anywhere; font-size: 0.82rem; }
+
+.prose-doc h2 { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.01em; margin: 2.5rem 0 0.75rem; }
+.prose-doc h3 { font-size: 1.1rem; font-weight: 650; margin: 1.75rem 0 0.5rem; }
+.prose-doc p, .prose-doc li { line-height: 1.65; max-width: 70ch; }
+.prose-doc p { margin: 0.75rem 0; }
+.prose-doc ul { list-style: disc; padding-left: 1.25rem; }
+.prose-doc ol { list-style: decimal; padding-left: 1.25rem; }
+.prose-doc code { font-family: var(--font-mono); font-size: 0.85em; background: var(--code); padding: 0.1em 0.35em; border-radius: 4px; }
+.prose-doc pre { background: var(--code); border-radius: 8px; padding: 1rem; overflow-x: auto; margin: 1rem 0; font-size: 0.82rem; line-height: 1.55; }
+.prose-doc pre code { background: none; padding: 0; }
+.prose-doc table { border-collapse: collapse; margin: 1rem 0; font-size: 0.9rem; display: block; overflow-x: auto; }
+.prose-doc th, .prose-doc td { border-bottom: 1px solid var(--rule); padding: 0.5rem 0.75rem 0.5rem 0; text-align: left; vertical-align: top; }
+.prose-doc th { font-weight: 600; }
+.prose-doc a { color: var(--lane); text-decoration: underline; text-underline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* The page's one orchestrated moment: the derivation assembles step by step on load. */
+@keyframes derive-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.derive-step { animation: derive-in 420ms cubic-bezier(.2,.7,.2,1) both; }

@@ -10,3 +10,4 @@ contracts/broadcast
 *.log
 .DS_Store
 *.tsbuildinfo
+node/dist

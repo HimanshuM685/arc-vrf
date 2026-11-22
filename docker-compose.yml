@@ -1,0 +1,52 @@
+# Arc VRF production stack: `make up` (or `docker compose up -d --build`).
+# Values come from .env next to this file. Only the variables listed per service enter that
+# container: the website never sees a key, and DEPLOYER_KEY never enters either container.
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+services:
+  # Public dashboard. Stateless: to scale, run more copies behind your load balancer.
+  web:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}
+        NEXT_PUBLIC_ARC_TESTNET_RPC: ${NEXT_PUBLIC_ARC_TESTNET_RPC:-}
+        NEXT_PUBLIC_ARC_MAINNET_RPC: ${NEXT_PUBLIC_ARC_MAINNET_RPC:-}
+    image: arc-vrf:latest
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+    logging: *logging
+
+  # The VRF oracle. Holds the keys, no public port.
+  # Exactly ONE replica: two nodes would race to answer the same requests and waste gas.
+  vrf-node:
+    image: arc-vrf:latest
+    pull_policy: never # built by the web service above
+    command: ["node", "vrf-node.mjs"]
+    environment:
+      RPC_URL: ${RPC_URL:-https://rpc.testnet.arc.io}
+      VRF_PROVING_KEY: ${VRF_PROVING_KEY:?set VRF_PROVING_KEY in .env}
+      NODE_TX_KEY: ${NODE_TX_KEY:?set NODE_TX_KEY in .env}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      MIN_BALANCE_USDC: ${MIN_BALANCE_USDC:-1}
+      POLL_MS: ${POLL_MS:-500}
+      HEALTH_PORT: "8080"
+    depends_on: [web] # only so the shared image is built first
+    deploy:
+      replicas: 1
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+    logging: *logging

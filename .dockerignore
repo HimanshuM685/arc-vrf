@@ -1,0 +1,8 @@
+**/node_modules
+**/.next
+contracts
+.git
+.claude
+.env
+.env.*
+*.log

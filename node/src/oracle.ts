@@ -3,8 +3,9 @@
 // so restarts (with a backfill START_BLOCK) never double-fulfil.
 import { arcVRFCoordinatorAbi } from '@arc-vrf/sdk'
 import { formatUnits, type Account, type Address, type Hex } from 'viem'
-import { arcFees, connect, log } from './chain.js'
-import { finalSeed, generateProof, keyHashOf, publicKey } from './proof.js'
+import { alert, resetAlert } from './alert.ts'
+import { arcFees, connect, log } from './chain.ts'
+import { finalSeed, generateProof, keyHashOf, publicKey } from './proof.ts'
 
 export type OracleOptions = {
   rpcUrl: string
@@ -16,6 +17,18 @@ export type OracleOptions = {
   maxBlockRange?: bigint
   minBalanceWei?: bigint
   signal?: AbortSignal
+  status?: NodeStatus // updated in place every poll, for health checks
+}
+
+/** Live node state for /api/health. Contains no secrets. */
+export type NodeStatus = {
+  startedAt?: number
+  lastPollAt?: number
+  head?: bigint
+  pending: number
+  lastFulfilAt?: number
+  balanceWei?: bigint
+  lastError?: string
 }
 
 type Pending = {
@@ -36,6 +49,7 @@ type Pending = {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // A request is only ever dropped once its on-chain commitment is gone (fulfilled). Until then,
 // failures (RPC outage, underfunded subscription, gas above the lane cap) retry with backoff.
+const OUTAGE_MS = 60_000
 const backoffMs = (attempts: number) => Math.min(60_000, 1_000 * 2 ** Math.min(attempts, 6))
 
 export async function runOracle(o: OracleOptions) {
@@ -55,6 +69,22 @@ export async function runOracle(o: OracleOptions) {
   let from = o.startBlock ?? (await publicClient.getBlockNumber())
   const pending = new Map<bigint, Pending>()
   let ticks = 0
+
+  const status = o.status
+  if (status) status.startedAt = Date.now()
+  let lastOkPoll = Date.now()
+  let outage = false
+  // Watchdog on its own timer: catches RPC calls that hang (no error ever reaches the loop)
+  // as well as ones that fail. Alert cooldown dedups; failed deliveries are retried next tick.
+  const watchdog = setInterval(() => {
+    const quietMs = Date.now() - lastOkPoll
+    if (quietMs <= OUTAGE_MS) return
+    if (!outage) resetAlert('rpc-recovered')
+    outage = true
+    void alert('rpc-outage', `no successful poll for ${Math.round(quietMs / 1000)}s, requests are not being answered${status?.lastError ? `: ${status.lastError}` : ''}`)
+  }, 10_000)
+  watchdog.unref()
+  o.signal?.addEventListener('abort', () => clearInterval(watchdog))
 
   while (!o.signal?.aborted) {
     try {
@@ -95,19 +125,41 @@ export async function runOracle(o: OracleOptions) {
         await fulfil(r).catch((e) => {
           r.attempts++
           r.nextTryAt = Date.now() + backoffMs(r.attempts)
-          log(`fulfil ${short(r.requestId)} failed (attempt ${r.attempts}, retrying in ${backoffMs(r.attempts) / 1000}s): ${(e as Error).message.split('\n')[0]}`)
+          const msg = (e as Error).message.split('\n')[0]
+          log(`fulfil ${short(r.requestId)} failed (attempt ${r.attempts}, retrying in ${backoffMs(r.attempts) / 1000}s): ${msg}`)
+          if (r.attempts === 5) void alert(`request-${r.requestId}`, `request ${r.requestId} still failing after 5 attempts (still retrying): ${msg}`)
         })
       }
 
-      if (ticks++ % 120 === 0 && o.minBalanceWei) {
+      if (ticks++ % 120 === 0) {
         const bal = await publicClient.getBalance({ address: o.txAccount.address })
-        if (bal < o.minBalanceWei) log(`WARNING: node balance ${formatUnits(bal, 18)} USDC is below the alert threshold`)
+        if (status) status.balanceWei = bal
+        if (o.minBalanceWei && bal < o.minBalanceWei) {
+          const msg = `gas balance ${formatUnits(bal, 18)} USDC is below ${formatUnits(o.minBalanceWei, 18)} USDC. Top up ${o.txAccount.address}`
+          log(`WARNING: ${msg}`)
+          void alert('low-balance', msg)
+        }
+      }
+      if (status) {
+        status.lastPollAt = Date.now()
+        status.head = head
+        status.pending = pending.size
+        status.lastError = undefined
+      }
+      lastOkPoll = Date.now()
+      if (outage) {
+        outage = false
+        resetAlert('rpc-outage')
+        void alert('rpc-recovered', `polling recovered at block ${head}`)
       }
     } catch (e) {
-      log(`poll error: ${(e as Error).message.split('\n')[0]}`)
+      const msg = (e as Error).message.split('\n')[0]
+      if (status) status.lastError = msg
+      log(`poll error: ${msg}`)
     }
     await sleep(pollMs)
   }
+  clearInterval(watchdog)
 
   async function fulfil(r: Pending) {
     const commitment = await publicClient.readContract({
@@ -142,6 +194,7 @@ export async function runOracle(o: OracleOptions) {
     const receipt = await publicClient.waitForTransactionReceipt({ hash })
     if (receipt.status !== 'success') throw new Error(`fulfil tx ${hash} reverted`)
     pending.delete(r.requestId)
+    if (status) status.lastFulfilAt = Date.now()
     log(`fulfilled ${short(r.requestId)} in block ${receipt.blockNumber} (gas ${receipt.gasUsed}) tx ${hash}`)
   }
 }

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { decodeAbiParameters, decodeEventLog, parseAbi, type Hex } from 'viem'
-import { batchFulfillParams } from '../src/abi.js'
-import { finalSeed, generateProof, keyHashOf, verifyProof } from '../src/proof.js'
+import { batchFulfillParams } from '../src/abi.ts'
+import { finalSeed, generateProof, keyHashOf, verifyProof } from '../src/proof.ts'
 
 const fx = (f: string) => JSON.parse(readFileSync(new URL(`./fixtures/${f}`, import.meta.url), 'utf8')).result
 

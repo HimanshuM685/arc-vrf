@@ -8,8 +8,8 @@
     "dev": "pnpm --filter web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "node": "pnpm --filter @arc-vrf/node start",
-    "e2e": "pnpm --filter @arc-vrf/node e2e"
+    "e2e": "pnpm --filter @arc-vrf/node e2e",
+    "vrf-node": "pnpm --filter @arc-vrf/node start"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

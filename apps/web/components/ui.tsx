@@ -124,7 +124,7 @@ export function NotDeployed({ chainName }: { chainName?: string }) {
     <Panel>
       <p className="font-medium">Arc VRF isn't deployed on {chainName ?? 'this network'} yet.</p>
       <p className="mt-2 text-muted">
-        Switch to a network with a deployment, or deploy your own with <code className="hex">pnpm --filter @arc-vrf/node deploy</code>{' '}
+        Switch to a network with a deployment, or deploy your own with <code className="hex">pnpm --filter @arc-vrf/node deploy-contracts</code>{' '}
         and regenerate the SDK.
       </p>
     </Panel>

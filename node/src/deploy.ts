@@ -8,8 +8,8 @@ import {
   type Deployment,
 } from '@arc-vrf/sdk'
 import { parseEventLogs, type Abi, type Account, type Address, type Hex } from 'viem'
-import { arcFees, connect, log } from './chain.js'
-import { keyHashOf } from './proof.js'
+import { arcFees, connect, log } from './chain.ts'
+import { keyHashOf } from './proof.ts'
 
 const contractsDir = new URL('../../contracts/', import.meta.url).pathname
 

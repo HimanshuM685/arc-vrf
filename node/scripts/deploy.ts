@@ -1,9 +1,9 @@
-// Usage: RPC_URL=... DEPLOYER_KEY=0x... VRF_PROVING_KEY=0x... pnpm --filter @arc-vrf/node deploy
+// Usage: RPC_URL=... DEPLOYER_KEY=0x... VRF_PROVING_KEY=0x... pnpm --filter @arc-vrf/node deploy-contracts
 // (or VRF_PUBLIC_KEY=x,y instead of VRF_PROVING_KEY, so the deployer never sees the secret key)
 import { parseEther, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
-import { deploy } from '../src/deploy.js'
-import { publicKey } from '../src/proof.js'
+import { deploy } from '../src/deploy.ts'
+import { publicKey } from '../src/proof.ts'
 
 const env = process.env
 if (!env.DEPLOYER_KEY) throw new Error('missing env DEPLOYER_KEY')

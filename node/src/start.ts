@@ -1,19 +1,11 @@
-// Starts the Arc VRF node from env vars (see .env.example). Used by the CLI (src/index.ts)
-// and by the Next.js app (apps/web/instrumentation.ts) to run the node in-process.
+// Starts the Arc VRF node from env vars (see .env.example). Used by the CLI (src/index.ts).
 import { getDeployment } from '@arc-vrf/sdk'
 import { createPublicClient, parseEther, type Address, type Hex } from 'viem'
-import { privateKeyToAccount } from 'viem/accounts'
+import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
 import { createServer } from 'node:http'
 import { alert } from './alert.ts'
 import { log, rpcTransport } from './chain.ts'
 import { runOracle, type NodeStatus } from './oracle.ts'
-
-// On globalThis: Next.js bundles instrumentation and route handlers separately, so a plain
-// module-level object wouldn't be shared between the node loop and /api/health.
-const g = globalThis as { __arcVrfNodeStatus?: NodeStatus }
-export function getNodeStatus(): NodeStatus | undefined {
-  return g.__arcVrfNodeStatus
-}
 
 const env = (k: string) => {
   const v = process.env[k]
@@ -21,18 +13,38 @@ const env = (k: string) => {
   return v
 }
 
-async function startOnce(status: NodeStatus, signal?: AbortSignal) {
+/** Validates everything that can be wrong in config, before any network call or retry. */
+function loadKeys(): { provingKey: bigint; txAccount: PrivateKeyAccount } {
+  const rawVrf = env('VRF_PROVING_KEY')
+  let provingKey: bigint
+  try {
+    provingKey = BigInt(rawVrf)
+  } catch {
+    throw new Error('VRF_PROVING_KEY must be a decimal or 0x-hex integer')
+  }
+  const rawTx = env('NODE_TX_KEY')
+  if (!/^0x[0-9a-fA-F]{64}$/.test(rawTx)) throw new Error('NODE_TX_KEY must be 0x followed by 64 hex characters')
+  return { provingKey, txAccount: privateKeyToAccount(rawTx as Hex) }
+}
+
+async function startOnce(
+  keys: ReturnType<typeof loadKeys>,
+  status: NodeStatus,
+  signal?: AbortSignal,
+) {
   const rpcUrl = process.env.RPC_URL ?? 'http://127.0.0.1:8545'
   const chainId = await createPublicClient({ transport: rpcTransport(rpcUrl) }).getChainId()
   const deployment = getDeployment(chainId)
-  const coordinator = (process.env.COORDINATOR ?? deployment?.coordinator) as Address | undefined
+  // `||` not `??`: docker-compose passes an empty string when the override is unset.
+  const coordinator = (process.env.COORDINATOR || deployment?.coordinator) as Address | undefined
   if (!coordinator) throw new Error(`no COORDINATOR set and no deployment for chain ${chainId}`)
 
   await runOracle({
     rpcUrl,
+    chainId,
     coordinator,
-    provingKey: BigInt(env('VRF_PROVING_KEY')),
-    txAccount: privateKeyToAccount(env('NODE_TX_KEY') as Hex),
+    provingKey: keys.provingKey,
+    txAccount: keys.txAccount,
     startBlock: process.env.START_BLOCK
       ? BigInt(process.env.START_BLOCK)
       : deployment
@@ -45,17 +57,15 @@ async function startOnce(status: NodeStatus, signal?: AbortSignal) {
   })
 }
 
-/** Runs the node until `signal` aborts. Startup failures (RPC down, key not registered yet)
- * are logged and retried every 5 s instead of killing the host process. */
+/** Runs the node until `signal` aborts. Config errors throw immediately. Runtime and startup
+ * failures (RPC down, key not registered yet) are logged and retried every 5 s. */
 export async function startFromEnv(signal?: AbortSignal) {
-  // Config mistakes fail fast; only runtime failures are retried.
-  env('VRF_PROVING_KEY')
-  env('NODE_TX_KEY')
-  const status: NodeStatus = (g.__arcVrfNodeStatus = { pending: 0 })
+  const keys = loadKeys()
+  const status: NodeStatus = { pending: 0 }
   if (process.env.HEALTH_PORT) serveHealth(Number(process.env.HEALTH_PORT), status)
   while (!signal?.aborted) {
     try {
-      await startOnce(status, signal)
+      await startOnce(keys, status, signal)
     } catch (e) {
       status.lastError = (e as Error).message.split('\n')[0]
       log(`node stopped: ${status.lastError}; restarting in 5s`)
@@ -67,9 +77,11 @@ export async function startFromEnv(signal?: AbortSignal) {
 
 const STALE_MS = 30_000
 
-/** GET anything -> node status JSON; 503 when the node hasn't polled recently. No secrets. */
+/** GET anything -> node status JSON; 503 when the node hasn't polled recently. No secrets.
+ * Bound to loopback: the only client is the container's own HEALTHCHECK. A listen failure
+ * (port in use) is logged and the node keeps running without the endpoint. */
 function serveHealth(port: number, s: NodeStatus) {
-  createServer((_req, res) => {
+  const server = createServer((_req, res) => {
     const ok = !!s.lastPollAt && Date.now() - s.lastPollAt < STALE_MS
     res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json' })
     res.end(
@@ -83,5 +95,7 @@ function serveHealth(port: number, s: NodeStatus) {
         lastError: s.lastError ?? null,
       }),
     )
-  }).listen(port, () => log(`health on :${port}`))
+  })
+  server.on('error', (e) => log(`health endpoint disabled: ${(e as Error).message}`))
+  server.listen(port, '127.0.0.1', () => log(`health on 127.0.0.1:${port}`))
 }

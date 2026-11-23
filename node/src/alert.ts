@@ -12,6 +12,8 @@ export async function alert(kind: string, message: string, now = Date.now()): Pr
   if (!url) return false
   const last = lastSent.get(kind)
   if (last !== undefined && now - last < COOLDOWN_MS) return false
+  // Drop kinds whose cooldown has passed, so per-request kinds can't grow the map forever.
+  for (const [k, t] of lastSent) if (now - t >= COOLDOWN_MS) lastSent.delete(k)
   lastSent.set(kind, now)
   const text = `[Arc VRF node] ${message}`
   try {

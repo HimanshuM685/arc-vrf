@@ -26,6 +26,17 @@ describe('alert', () => {
     expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toMatchObject({ content: '[Arc VRF node] a', text: '[Arc VRF node] a' })
   })
 
+  it('forgets kinds whose cooldown has passed', async () => {
+    vi.stubEnv('ALERT_WEBHOOK_URL', 'https://hooks.example/abc')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 204 })))
+    const t0 = 10_000_000
+    await alert('req-1', 'a', t0)
+    await alert('req-2', 'b', t0 + 31 * 60_000) // req-1 cooldown passed: swept
+    // req-1 is gone from the map, so a fresh trigger sends immediately even without resetAlert
+    expect(await alert('req-1', 'c', t0 + 31 * 60_000 + 1)).toBe(true)
+    expect(await alert('req-2', 'd', t0 + 31 * 60_000 + 2)).toBe(false) // req-2 still cooling down
+  })
+
   it('never throws when the webhook is down, and retries on the next trigger', async () => {
     vi.stubEnv('ALERT_WEBHOOK_URL', 'https://hooks.example/abc')
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('ECONNREFUSED')))

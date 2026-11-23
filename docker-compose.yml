@@ -36,6 +36,9 @@ services:
       RPC_URL: ${RPC_URL:-https://rpc.testnet.arc.io}
       VRF_PROVING_KEY: ${VRF_PROVING_KEY:?set VRF_PROVING_KEY in .env}
       NODE_TX_KEY: ${NODE_TX_KEY:?set NODE_TX_KEY in .env}
+      # Optional overrides; empty means "use the deployment file for this chain".
+      COORDINATOR: ${COORDINATOR:-}
+      START_BLOCK: ${START_BLOCK:-}
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       MIN_BALANCE_USDC: ${MIN_BALANCE_USDC:-1}
       POLL_MS: ${POLL_MS:-500}

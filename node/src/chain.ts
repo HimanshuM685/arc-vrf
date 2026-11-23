@@ -12,27 +12,34 @@ import {
 } from 'viem'
 
 /** RPC_URL may list several endpoints, comma-separated: requests go to the first and fall back to
- * the next when one errors or rate-limits (e.g. Circle's public RPC, then dRPC, then QuickNode). */
-export function rpcTransport(rpcUrl: string): Transport {
+ * the next when one errors (e.g. Circle's public RPC, then dRPC, then QuickNode). */
+export function parseRpcUrls(rpcUrl: string): string[] {
   const urls = rpcUrl.split(',').map((u) => u.trim()).filter(Boolean)
   if (urls.length === 0) throw new Error('RPC_URL is empty')
-  // Arc's load-balanced RPC may briefly return -32014; retry before failing over.
-  const one = (u: string) => http(u, { retryCount: urls.length > 1 ? 2 : 5, retryDelay: 250, timeout: 10_000 })
-  // rank: ping each endpoint every 10 s and prefer the healthy, fast ones, so a dead first URL
-  // doesn't add latency to every call.
-  return urls.length === 1 ? one(urls[0]!) : fallback(urls.map(one), { rank: { interval: 10_000 } })
+  return urls
 }
 
-export async function connect(rpcUrl: string, account: Account) {
+export function rpcTransport(rpcUrl: string): Transport {
+  const urls = parseRpcUrls(rpcUrl)
+  // Arc's load-balanced RPC may briefly return -32014; retry before failing over.
+  const one = (u: string) => http(u, { retryCount: urls.length > 1 ? 2 : 5, retryDelay: 250, timeout: 10_000 })
+  // ponytail: no health ranking; a dead first URL costs one failed call per request. Add ranking
+  // (viem fallback `rank`) only if that latency shows up. `rank` runs a timer per transport
+  // that is never stopped, so it leaks in a retry loop.
+  return urls.length === 1 ? one(urls[0]!) : fallback(urls.map(one))
+}
+
+/** Pass `chainId` when the caller already probed it, to skip a round-trip. */
+export async function connect(rpcUrl: string, account: Account, chainId?: number) {
   const transport = rpcTransport(rpcUrl)
-  const id = await createPublicClient({ transport }).getChainId()
+  const id = chainId ?? (await createPublicClient({ transport }).getChainId())
   const chain: Chain =
     chains.find((c) => c.id === id) ??
     defineChain({
       id,
       name: `chain-${id}`,
       nativeCurrency: { name: 'USDC', symbol: 'USDC', decimals: 18 },
-      rpcUrls: { default: { http: rpcUrl.split(',').map((u) => u.trim()) } },
+      rpcUrls: { default: { http: parseRpcUrls(rpcUrl) } },
     })
   const publicClient = createPublicClient({ chain, transport, pollingInterval: 500 }) as PublicClient
   const walletClient = createWalletClient({ chain, transport, account, pollingInterval: 500 })

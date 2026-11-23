@@ -9,6 +9,7 @@ import { finalSeed, generateProof, keyHashOf, publicKey } from './proof.ts'
 
 export type OracleOptions = {
   rpcUrl: string
+  chainId?: number // skips the chain-id probe when the caller already has it
   coordinator: Address
   provingKey: bigint // VRF secret key: proves only, never signs transactions
   txAccount: Account // pays gas for fulfilments
@@ -22,7 +23,6 @@ export type OracleOptions = {
 
 /** Live node state for /api/health. Contains no secrets. */
 export type NodeStatus = {
-  startedAt?: number
   lastPollAt?: number
   head?: bigint
   pending: number
@@ -53,7 +53,7 @@ const OUTAGE_MS = 60_000
 const backoffMs = (attempts: number) => Math.min(60_000, 1_000 * 2 ** Math.min(attempts, 6))
 
 export async function runOracle(o: OracleOptions) {
-  const { chain, publicClient, walletClient } = await connect(o.rpcUrl, o.txAccount)
+  const { chain, publicClient, walletClient } = await connect(o.rpcUrl, o.txAccount, o.chainId)
   const keyHash = keyHashOf(publicKey(o.provingKey))
   const [exists] = await publicClient.readContract({
     address: o.coordinator,
@@ -71,7 +71,6 @@ export async function runOracle(o: OracleOptions) {
   let ticks = 0
 
   const status = o.status
-  if (status) status.startedAt = Date.now()
   let lastOkPoll = Date.now()
   let outage = false
   // Watchdog on its own timer: catches RPC calls that hang (no error ever reaches the loop)
@@ -120,6 +119,19 @@ export async function runOracle(o: OracleOptions) {
         from = to + 1n
       }
 
+      // Stamp the poll before fulfilments: a slow fulfil batch must not look like an outage.
+      lastOkPoll = Date.now()
+      if (status) {
+        status.lastPollAt = lastOkPoll
+        status.head = head
+        status.lastError = undefined
+      }
+      if (outage) {
+        outage = false
+        resetAlert('rpc-outage')
+        void alert('rpc-recovered', `polling recovered at block ${head}`)
+      }
+
       for (const r of [...pending.values()]) {
         if (head < r.blockNumber + BigInt(r.confirmations) || Date.now() < r.nextTryAt) continue
         await fulfil(r).catch((e) => {
@@ -130,27 +142,21 @@ export async function runOracle(o: OracleOptions) {
           if (r.attempts === 5) void alert(`request-${r.requestId}`, `request ${r.requestId} still failing after 5 attempts (still retrying): ${msg}`)
         })
       }
+      if (status) status.pending = pending.size
 
+      // Balance is advisory: a failed read is logged, never counted as a failed poll.
       if (ticks++ % 120 === 0) {
-        const bal = await publicClient.getBalance({ address: o.txAccount.address })
-        if (status) status.balanceWei = bal
-        if (o.minBalanceWei && bal < o.minBalanceWei) {
-          const msg = `gas balance ${formatUnits(bal, 18)} USDC is below ${formatUnits(o.minBalanceWei, 18)} USDC. Top up ${o.txAccount.address}`
-          log(`WARNING: ${msg}`)
-          void alert('low-balance', msg)
+        try {
+          const bal = await publicClient.getBalance({ address: o.txAccount.address })
+          if (status) status.balanceWei = bal
+          if (o.minBalanceWei && bal < o.minBalanceWei) {
+            const msg = `gas balance ${formatUnits(bal, 18)} USDC is below ${formatUnits(o.minBalanceWei, 18)} USDC. Top up ${o.txAccount.address}`
+            log(`WARNING: ${msg}`)
+            void alert('low-balance', msg)
+          }
+        } catch (e) {
+          log(`balance check failed: ${(e as Error).message.split('\n')[0]}`)
         }
-      }
-      if (status) {
-        status.lastPollAt = Date.now()
-        status.head = head
-        status.pending = pending.size
-        status.lastError = undefined
-      }
-      lastOkPoll = Date.now()
-      if (outage) {
-        outage = false
-        resetAlert('rpc-outage')
-        void alert('rpc-recovered', `polling recovered at block ${head}`)
       }
     } catch (e) {
       const msg = (e as Error).message.split('\n')[0]
@@ -169,7 +175,7 @@ export async function runOracle(o: OracleOptions) {
       args: [r.requestId],
     })
     if (BigInt(commitment) === 0n) {
-      pending.delete(r.requestId) // already fulfilled (or never existed)
+      forget(r.requestId) // already fulfilled (or never existed)
       return
     }
     // Seed = keccak256(preSeed, hash of the block the request landed in).
@@ -193,9 +199,15 @@ export async function runOracle(o: OracleOptions) {
     })
     const receipt = await publicClient.waitForTransactionReceipt({ hash })
     if (receipt.status !== 'success') throw new Error(`fulfil tx ${hash} reverted`)
-    pending.delete(r.requestId)
+    forget(r.requestId)
     if (status) status.lastFulfilAt = Date.now()
     log(`fulfilled ${short(r.requestId)} in block ${receipt.blockNumber} (gas ${receipt.gasUsed}) tx ${hash}`)
+  }
+
+  // Done with a request: drop it and its per-request alert cooldown, so alert state doesn't grow forever.
+  function forget(id: bigint) {
+    pending.delete(id)
+    resetAlert(`request-${id}`)
   }
 }
 

@@ -34,9 +34,11 @@ Creates `.env` with three fresh keys and prints the deployer and node addresses.
 | `DEPLOYER_KEY` | deploy only | set by `make keys` | Deploys and owns the contracts. Remove from `.env` after step 4. |
 | `ALERT_WEBHOOK_URL` | no | off | Discord or Slack webhook for alerts. |
 | `MIN_BALANCE_USDC` | no | `1` | Alert when the node's gas balance drops below this. |
-| `WEB_PORT` | no | `3000` | Port the website is published on. Change it, then run `make up`. |
+| `WEB_PORT` | no | `3000` | Port the website is published on (also used without Docker). Change it, then run `make up`. |
+| `WEB_BIND` | no | `0.0.0.0` | Address the website port listens on. Set `127.0.0.1` behind a reverse proxy on the same host (step 6). |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | no | empty | Enables WalletConnect / mobile wallets ([cloud.reown.com](https://cloud.reown.com)). |
-| `NEXT_PUBLIC_ARC_TESTNET_RPC` | no | public RPC | RPC the dashboard uses in the browser. |
+| `NEXT_PUBLIC_ARC_TESTNET_RPC` | no | public RPC | RPC the dashboard uses in the browser for Arc testnet. |
+| `NEXT_PUBLIC_ARC_MAINNET_RPC` | no | public RPC | RPC the dashboard uses in the browser for Arc mainnet. |
 | `COORDINATOR` | no | from deployment file | Override the coordinator address. |
 | `START_BLOCK` | no | deployment block | Block the node starts scanning from. |
 | `POLL_MS` | no | `500` | How often the node checks for requests. |
@@ -84,16 +86,19 @@ The website is on port `WEB_PORT` (default 3000). Open **Playground** and roll t
 ## 6. HTTPS
 
 ```bash
-caddy reverse-proxy --from vrf.example.com --to :3000   # use your WEB_PORT
+set -a && . ./.env && set +a
+caddy reverse-proxy --from vrf.example.com --to "127.0.0.1:${WEB_PORT:-3000}"
 ```
 
 Or any load balancer, nginx or Cloudflare Tunnel in front of port `WEB_PORT`. Point uptime monitors at `https://vrf.example.com/api/health`.
+
+When the proxy runs on the same host, set `WEB_BIND=127.0.0.1` in `.env` and run `make up`. Otherwise plain HTTP on `WEB_PORT` stays reachable from the internet, and a host firewall such as ufw does not block it: Docker opens published ports itself.
 
 ## What runs
 
 | Service | Copies | Has keys | Public |
 |---|---|---|---|
-| `web` | 1 or more | No | `WEB_PORT` (default 3000) |
+| `web` | 1 or more ([Scaling](#scaling)) | No | `WEB_PORT` (default 3000), one copy per host |
 | `vrf-node` | **Exactly 1** | Proving + node keys | No port |
 
 Both come from one Docker image. The website never receives a key.
@@ -181,7 +186,7 @@ On testnet, redeploying with a fresh `.env` is simpler.
 ```bash
 set -a && . ./.env && set +a
 pnpm vrf-node          # the node
-pnpm --filter web build && pnpm --filter web start   # the website
+pnpm --filter web build && PORT=${WEB_PORT:-3000} pnpm --filter web start   # the website
 ```
 
 Use a process manager (systemd, pm2) to restart them on failure.

@@ -23,7 +23,7 @@ chmodSync(envPath, 0o600)
 console.log(`Wrote .env with three new keys (file is readable only by you).
 
 Fund these with Arc USDC (testnet: https://faucet.circle.com):
-  deployer  ${privateKeyToAddress(keys.DEPLOYER_KEY)}   ~3 USDC
+  deployer  ${privateKeyToAddress(keys.DEPLOYER_KEY)}   ~2.5 USDC
   node      ${privateKeyToAddress(keys.NODE_TX_KEY)}   ~1 USDC
 
 Do not fund the proving key. Next: make deploy-contracts`)

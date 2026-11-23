@@ -132,7 +132,7 @@ Needs Docker, Node 22+, pnpm 10, Foundry and some USDC for gas.
 ```bash
 make install
 make keys               # creates .env with fresh keys, prints 2 addresses
-# send USDC to both printed addresses (~3 deployer, ~1 node)
+# send USDC to both printed addresses (~2.5 deployer, ~1 node)
 make deploy-contracts   # deploys contracts, writes contracts/deployments/<chainId>.json
 make up                 # builds and starts the website and the VRF node
 make health             # {"web":"ok"} and "node":"ok"

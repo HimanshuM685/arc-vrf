@@ -235,6 +235,11 @@ echo 'arc-vrf/=lib/arc-vrf/contracts/src/' >> remappings.txt`}</code></pre>
             cancel the pool: direct funding stops working without it. Use a separate wallet for deploying to keep it out
             of your list.
           </p>
+          <p>
+            Deployments made before the sample games were removed (including the current Arc Testnet one) also made a
+            second subscription for the old <strong>Hi-Lo sample</strong>, funded with 0.5 USDC. Nothing needs it any
+            more, and anyone can still spend from it by playing the old game. Cancel it to get the USDC back.
+          </p>
         </details>
         <details>
           <summary>I can’t remove a consumer or cancel</summary>

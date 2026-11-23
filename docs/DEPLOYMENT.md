@@ -8,7 +8,7 @@ Set up Arc VRF from scratch and run it in production. For how it works, see [ARC
 - Node 22+ and pnpm 10
 - [Foundry](https://getfoundry.sh)
 - git
-- USDC for gas: ~3 for the deployer, ~1 for the node. Testnet faucet: https://faucet.circle.com
+- USDC for gas: ~2.5 for the deployer, ~1 for the node. Testnet faucet: https://faucet.circle.com
 
 ## 1. Install
 
@@ -52,7 +52,7 @@ Creates `.env` with three fresh keys and prints the deployer and node addresses.
 
 ## 3. Fund
 
-Send USDC to the two addresses `make keys` printed: ~3 to the deployer, ~1 to the node.
+Send USDC to the two addresses `make keys` printed: ~2.5 to the deployer, ~1 to the node.
 
 ## 4. Deploy the contracts
 
@@ -80,7 +80,9 @@ Expected:
 {"node":"ok","lastPollAt":"…","head":"…","pending":0,"lastFulfilAt":null,"balanceUsdc":"1","lastError":null}
 ```
 
-The website is on port `WEB_PORT` (default 3000). The **Network** panel on the Overview page should say “Reading live”. To test a real request, create a subscription, add your consumer contract, and request randomness: the answer arrives within a few seconds. Both services restart automatically after a crash or reboot.
+`make health` is the node check: `"node":"ok"` with a `lastPollAt` a few seconds old means it is watching the chain. Run it again after a minute; if `lastPollAt` hasn't moved, check `make logs`. The dashboard's “Reading live” badge (Overview page, **Live on …** panel) only shows that your browser reaches a public RPC, not that the node works.
+
+The website is on port `WEB_PORT` (default 3000). To test a real request end to end, create a subscription, add your consumer contract, and request randomness: `lastFulfilAt` in `make health` updates and the answer arrives within a few seconds. Both services restart automatically after a crash or reboot.
 
 ## 6. HTTPS
 

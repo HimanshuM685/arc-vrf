@@ -97,7 +97,8 @@ function MySubscriptions() {
         {mine.some(({ id }) => systemSub(d, id)) && (
           <p className="mt-4 text-sm text-muted">
             The direct-funding pool was created and funded by the deploy script, from this wallet (the deployer). The
-            USDC in it came from this wallet when the contracts were deployed.
+            USDC in it came from this wallet when the contracts were deployed. An unmarked subscription with about 0.5
+            USDC is the old Hi-Lo sample’s: nothing uses it now, so cancel it to get the USDC back.
           </p>
         )}
       </Panel>

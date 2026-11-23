@@ -65,7 +65,7 @@ body::before {
   background-image: repeating-linear-gradient(0deg, transparent 0 3px, var(--ink) 3px 4px);
   opacity: 0.025;
 }
-/* White vertical lines for inverted (black) bands. */
+/* White vertical lines for inverted (ink-coloured) bands. */
 .tex-vlines { position: relative; isolation: isolate; }
 .tex-vlines::before {
   content: "";

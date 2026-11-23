@@ -1,136 +1,106 @@
-# Deployment and operations
+# Deployment
 
-This guide takes you from an empty server to a running Arc VRF service, then covers day-to-day operation. For how the system works, see [ARCHITECTURE.md](ARCHITECTURE.md).
+Set up Arc VRF from scratch and run it in production. For how it works, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
-## What you are running
+## Requirements
 
-| Piece | Where | Copies | Holds keys |
-|---|---|---|---|
-| Contracts | Arc, deployed once from your laptop | — | Owned by the deployer key |
-| `vrf-node` | Docker on your server | **Exactly 1** | Proving key + node transaction key |
-| `web` (dashboard) | Docker on your server | 1 or more | None |
+- Docker with the Compose plugin
+- Node 22+ and pnpm 10
+- [Foundry](https://getfoundry.sh)
+- git
+- USDC for gas: ~3 for the deployer, ~1 for the node. Testnet faucet: https://faucet.circle.com
 
-Both services come from one Docker image (`Dockerfile`) and are defined in `docker-compose.yml`. The node has no public port. The website listens on port 3000.
-
-## Prerequisites
-
-- **Laptop** (deploys contracts): Node 22+, pnpm 10, [Foundry](https://getfoundry.sh) or [Arc Foundry](https://docs.arc.io/arc/tutorials/install-arc-foundry.md), git.
-- **Server** (runs the services): Docker with the Compose plugin, git. 1 vCPU and 1 GB RAM is enough.
-- **USDC** for gas: about 3 USDC for the deployer and 1 USDC for the node. On testnet, use the faucet at https://faucet.circle.com.
-
-Run `make help` at any time to list every command.
-
-## Keys
-
-| Key | What it does | Fund it? | Lives on |
-|---|---|---|---|
-| `VRF_PROVING_KEY` | Computes the randomness. Anyone holding it can predict results. | Never | Server |
-| `NODE_TX_KEY` | Pays gas for answers (about 0.005 USDC each). | ~1 USDC, top up over time | Server |
-| `DEPLOYER_KEY` | Deploys and owns the contracts, sets fees, withdraws earnings. | ~3 USDC | Laptop only |
-
-`make keys` generates all three into `.env` (mode 600) and refuses to overwrite an existing `.env`. Never commit `.env` and never paste keys into chats, tickets or logs.
-
-## Step 1: generate keys (laptop)
+## 1. Install
 
 ```bash
-git clone git@github.com:HimanshuM685/arc-vrf.git && cd arc-vrf
+git clone https://github.com/HimanshuM685/arc-vrf.git
+cd arc-vrf
 make install
+```
+
+## 2. Configure
+
+```bash
 make keys
 ```
 
-`make keys` prints the deployer and node addresses. Review `.env`: `RPC_URL` defaults to Arc testnet.
+Creates `.env` with three fresh keys and prints the deployer and node addresses. Edit `.env` for anything else in the table below. Never commit `.env`.
 
-## Step 2: fund the addresses
+| Variable | Required | Default | What it does |
+|---|---|---|---|
+| `RPC_URL` | yes | `https://rpc.testnet.arc.io` | Arc RPC. Comma-separate several for failover; first is preferred. |
+| `VRF_PROVING_KEY` | yes | set by `make keys` | Computes the randomness. Never fund it. Anyone holding it can predict results. |
+| `NODE_TX_KEY` | yes | set by `make keys` | Pays gas for answers (~0.005 USDC each). |
+| `DEPLOYER_KEY` | deploy only | set by `make keys` | Deploys and owns the contracts. Remove from `.env` after step 4. |
+| `ALERT_WEBHOOK_URL` | no | off | Discord or Slack webhook for alerts. |
+| `MIN_BALANCE_USDC` | no | `1` | Alert when the node's gas balance drops below this. |
+| `WEB_PORT` | no | `3000` | Port for the website. |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | no | empty | Enables WalletConnect / mobile wallets ([cloud.reown.com](https://cloud.reown.com)). |
+| `NEXT_PUBLIC_ARC_TESTNET_RPC` | no | public RPC | RPC the dashboard uses in the browser. |
+| `COORDINATOR` | no | from deployment file | Override the coordinator address. |
+| `START_BLOCK` | no | deployment block | Block the node starts scanning from. |
+| `POLL_MS` | no | `500` | How often the node checks for requests. |
+| `PREMIUM_PCT` | no | `50` | Subscription fee on top of gas, %. Used by step 4. |
+| `WRAPPER_PREMIUM_PCT` | no | `60` | Direct-funding fee on top of gas, %. Used by step 4. |
+| `FLAT_FEE_PPM` | no | `0` | Flat fee per request, millionths of a USDC. Used by step 4. |
+| `MAX_GAS_PRICE_GWEI` | no | `500` | Highest gas price the node answers at. Used by step 4. |
+| `WRAPPER_FUNDING_USDC` | no | `1` | Starting balance of the wrapper's subscription. Used by step 4. |
+| `EXAMPLE_FUNDING_USDC` | no | `0.5` | Starting balance of the sample game. Used by step 4. |
 
-Send USDC to both printed addresses: about 3 to the deployer, about 1 to the node.
+`NEXT_PUBLIC_*` values are built into the website: run `make up` again after changing them.
 
-## Step 3: deploy the contracts (laptop)
+## 3. Fund
+
+Send USDC to the two addresses `make keys` printed: ~3 to the deployer, ~1 to the node.
+
+## 4. Deploy the contracts
 
 ```bash
 make deploy-contracts
+git add contracts/deployments packages/sdk
+git commit -m "deploy: arc testnet"
+git push
+sed -i.bak '/^DEPLOYER_KEY=/d' .env && rm .env.bak
 ```
 
-This builds the contracts and deploys the `BlockhashStore`, coordinator, batch helper, wrapper and the two sample games. It registers the proving key, sets fees from `.env`, creates and funds the wrapper's and the samples' subscriptions, then writes `contracts/deployments/<chainId>.json` and regenerates the SDK.
+Deploys the coordinator, wrapper, `BlockhashStore`, batch helper and two sample games, registers the proving key, sets fees, funds the subscriptions, and writes the addresses to `contracts/deployments/<chainId>.json`. The last line removes `DEPLOYER_KEY` so the running services never have it; keep a backup of it somewhere safe, it owns the contracts.
 
-Commit and push that deployment file. The Docker image reads contract addresses from it at build time.
-
-```bash
-git add contracts/deployments packages/sdk && git commit -m "deploy: arc testnet" && git push
-```
-
-## Step 4: start the services (server)
+## 5. Run
 
 ```bash
-git clone git@github.com:HimanshuM685/arc-vrf.git && cd arc-vrf
-# Copy .env from your laptop, then remove the deployer key from the server copy:
-sed -i '/^DEPLOYER_KEY=/d' .env
 make up
-```
-
-`make up` builds the image and starts both services in the background. They restart automatically after a crash or reboot.
-
-## Step 5: check it
-
-```bash
 make health
 ```
 
-Expected output:
+Expected:
 
 ```
 {"web":"ok"}
 {"node":"ok","lastPollAt":"…","head":"…","pending":0,"lastFulfilAt":null,"balanceUsdc":"1","lastError":null}
 ```
 
-`node` reads `stale` if it hasn't polled the chain in the last 30 s. Then open the dashboard on port 3000, go to **Playground** and roll the dice: the answer should arrive within a few seconds.
+The website is on port 3000. Open **Playground** and roll the dice: the answer arrives within a few seconds. Both services restart automatically after a crash or reboot.
 
-## Step 6: HTTPS
-
-Put a TLS-terminating proxy in front of port 3000. The simplest is [Caddy](https://caddyserver.com), which gets certificates automatically:
+## 6. HTTPS
 
 ```bash
 caddy reverse-proxy --from vrf.example.com --to :3000
 ```
 
-Any load balancer, nginx or Cloudflare Tunnel works the same way. Point uptime monitors at `https://vrf.example.com/api/health`.
+Or any load balancer, nginx or Cloudflare Tunnel in front of port 3000. Point uptime monitors at `https://vrf.example.com/api/health`.
 
-## Environment variables
+## What runs
 
-Set in `.env` next to `docker-compose.yml`. Only the variables a service needs are passed into its container: the website never receives a key, and `DEPLOYER_KEY` never enters either container.
+| Service | Copies | Has keys | Public |
+|---|---|---|---|
+| `web` | 1 or more | No | Port 3000 |
+| `vrf-node` | **Exactly 1** | Proving + node keys | No port |
 
-### Server
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `RPC_URL` | `https://rpc.testnet.arc.io` | Arc RPC. Comma-separate several for failover; the first is preferred. |
-| `VRF_PROVING_KEY` | required | Proving key (hex private key). |
-| `NODE_TX_KEY` | required | Key that sends fulfilment transactions. |
-| `COORDINATOR` | from deployment file | Override the coordinator address. |
-| `START_BLOCK` | deployment block | Block the node starts scanning from on boot. |
-| `POLL_MS` | `500` | How often the node polls for new requests. |
-| `ALERT_WEBHOOK_URL` | empty (off) | Discord or Slack incoming-webhook URL. |
-| `MIN_BALANCE_USDC` | `1` | Alert when the node's gas balance drops below this. |
-| `WEB_PORT` | `3000` | Host port for the website. |
-| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | empty | Enables WalletConnect and mobile wallets ([cloud.reown.com](https://cloud.reown.com)). Build-time. |
-| `NEXT_PUBLIC_ARC_TESTNET_RPC`, `NEXT_PUBLIC_ARC_MAINNET_RPC` | public RPC | RPC the dashboard uses in users' browsers. Build-time. |
-
-`NEXT_PUBLIC_*` values are baked into the image, so run `make up` again after changing them.
-
-### Laptop only (contract deployment)
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `DEPLOYER_KEY` | required | Deploys and owns the contracts. |
-| `PREMIUM_PCT` | `50` | Subscription premium on top of gas, in percent. |
-| `WRAPPER_PREMIUM_PCT` | `60` | Direct-funding premium, in percent. |
-| `FLAT_FEE_PPM` | `0` | Flat fee per request, in millionths of a USDC. |
-| `MAX_GAS_PRICE_GWEI` | `500` | Gas lane cap: the node won't be paid above this gas price. |
-| `WRAPPER_FUNDING_USDC` | `1` | Initial funding of the wrapper's subscription. |
-| `EXAMPLE_FUNDING_USDC` | `0.5` | Initial funding of the sample game's subscription. |
+Both come from one Docker image. The website never receives a key.
 
 ## Operations
 
-### Everyday commands (server)
+### Commands
 
 | Command | Does |
 |---|---|

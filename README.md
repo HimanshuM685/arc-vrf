@@ -117,20 +117,22 @@ Contract tests generate real VRF proofs through the TypeScript prover (`forge te
 
 ## Deploy to production
 
-Four steps, about 15 minutes:
+Needs Docker, Node 22+, pnpm 10, Foundry and some USDC for gas.
 
 ```bash
-make install && make keys    # 1. laptop: create .env with fresh keys, print addresses to fund
-                             # 2. fund the deployer and node addresses with USDC
-make deploy-contracts        # 3. laptop: deploy, then commit contracts/deployments/<chainId>.json
-make up                      # 4. server: build and start web + vrf-node with Docker
+make install
+make keys               # creates .env with fresh keys, prints 2 addresses
+# send USDC to both printed addresses (~3 deployer, ~1 node)
+make deploy-contracts   # deploys contracts, writes contracts/deployments/<chainId>.json
+make up                 # builds and starts the website and the VRF node
+make health             # {"web":"ok"} and "node":"ok"
 ```
 
-**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** is the full operator guide: key handling, every environment variable, health checks, alerts, scaling, updates, key rotation and troubleshooting. Run `make help` for all commands.
+**[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** has every environment variable and the full guide: key handling, every environment variable, health checks, alerts, scaling, updates, key rotation and troubleshooting. Run `make help` for all commands.
 
 ## Security and trust model
 
-- **Three keys, separated.** The *proving key* computes randomness and never holds funds. The *node transaction key* only pays gas for answers. The *deployer key* owns the contracts and stays on your laptop, never on the server.
+- **Three keys, separated.** The *proving key* computes randomness and never holds funds. The *node transaction key* only pays gas for answers. The *deployer key* owns the contracts and is removed from `.env` after deploying, so the running services never hold it.
 - **The operator can delay an answer but cannot choose it.** A different number would need a different proof, which fails verification on-chain. Anyone who holds the proving key can *predict* results, so keep it secret.
 - **One operator at launch.** The coordinator owner can change fees and register or remove keys.
 - **Not audited yet.** The changes from Chainlink VRF v2.5 are small and covered by tests, but treat this as testnet software until an audit is done.

@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useState } from 'react'
 import { parseGwei, type Address } from 'viem'
 import { useAccount, useBalance, useChains, useGasPrice, useReadContract, useReadContracts } from 'wagmi'
-import { Addr, Badge, Button, Fields, Input, NotDeployed, PageHead, Panel, TxNote, buttonClass } from '@/components/ui'
+import { Addr, Badge, Button, Fields, Input, NotDeployed, PageHead, Panel, TxNote, appButtonClass } from '@/components/ui'
 import { ev } from '@/lib/events'
 import { gwei, short, usdc } from '@/lib/format'
 import { useDeployment, useLogs, useTx } from '@/lib/hooks'
@@ -121,8 +121,8 @@ function Calculator({ cfg }: { cfg?: WrapperCfg }) {
         <Input label="Gas price (gwei)" inputMode="decimal" value={gasPriceStr} onChange={(e) => setPrice(e.target.value)} hint={price ? undefined : 'Live, floored at 20'} />
       </div>
       <div className="mt-10 flex flex-wrap items-baseline gap-x-4 gap-y-2">
-        <p className="font-display text-4xl font-bold tracking-tight lining-nums tabular-nums break-all">{onchain.data !== undefined ? usdc(onchain.data, 8) : parts ? usdc(parts.total, 8) : '…'}</p>
-        <span className="label text-muted">USDC per request</span>
+        <p className="text-3xl font-semibold tabular-nums break-all">{onchain.data !== undefined ? usdc(onchain.data, 8) : parts ? usdc(parts.total, 8) : '…'}</p>
+        <span className="text-sm text-muted">USDC per request</span>
       </div>
       {tooMany && <p className="alert mt-3 text-sm" role="alert">The wrapper accepts at most {cfg![6]} words per request.</p>}
       {parts && (
@@ -156,7 +156,7 @@ function OperatorControls({ owner }: { owner?: Address }) {
         <Button variant="quiet" onClick={() => tx.send({ address: d!.wrapper, abi: arcVRFWrapperAbi, functionName: 'withdrawNative', args: [address] })}>
           Withdraw fees
         </Button>
-        <Link href={`/subscriptions/${d!.wrapperSubId}`} className={buttonClass('quiet')}>
+        <Link href={`/subscriptions/${d!.wrapperSubId}`} className={appButtonClass('quiet')}>
           Top up its subscription
         </Link>
       </div>
@@ -181,7 +181,7 @@ function RecentWrapperRequests() {
         <ul className="divide-y divide-rule">
           {rows.map((l) => (
             <li key={l.transactionHash + l.logIndex} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5">
-              <Link href={`/requests/${l.args.requestId}`} className="hex underline-offset-4 hover:underline">{short(l.args.requestId, 8, 6)}</Link>
+              <Link href={`/requests/${l.args.requestId}`} className="hex text-accent underline-offset-4 hover:underline">{short(l.args.requestId, 8, 6)}</Link>
               <span className="flex flex-wrap items-center gap-x-4 text-sm">
                 <span className="hex text-muted">{short(l.args.consumer)}</span>
                 <span>paid {usdc(l.args.paid)} USDC</span>

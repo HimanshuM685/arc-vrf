@@ -93,7 +93,7 @@ function Toc() {
     <div className="space-y-8">
       {toc.map(([group, items]) => (
         <div key={group}>
-          <p className="label mb-2 border-b-2 border-ink pb-2">{group}</p>
+          <p className="mb-1 text-xs font-medium text-muted">{group}</p>
           <ul>
             {items.map(([id, label]) => (
               <li key={id}>
@@ -118,17 +118,17 @@ export default function DocsPage() {
         </div>
       </nav>
       <article className="prose-doc min-w-0">
-        <h1 className="text-3xl leading-tight font-bold tracking-tight sm:text-4xl">Docs</h1>
+        <h1 className="text-2xl font-semibold">Docs</h1>
         <p className="!mt-2 border-b border-rule pb-5 text-muted">
           Random numbers for your Arc contracts. Each number comes with a proof, and the chain checks that proof before
           your contract gets the number, so nobody can rig it. Not even us.
         </p>
-        <details className="group mt-6 border border-ink xl:hidden">
-          <summary className="label flex min-h-11 cursor-pointer list-none items-center justify-between px-4 [&::-webkit-details-marker]:hidden">
+        <details className="group mt-6 rounded-xl border border-rule bg-paper xl:hidden">
+          <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between px-4 text-sm font-medium [&::-webkit-details-marker]:hidden">
             On this page
             <span aria-hidden="true" className="text-base group-open:rotate-45">+</span>
           </summary>
-          <div className="border-t border-ink p-4">
+          <div className="border-t border-rule p-4">
             <Toc />
           </div>
         </details>
@@ -140,13 +140,13 @@ export default function DocsPage() {
         <h2 id="pay">Two ways to pay</h2>
         <p>Everything is paid in USDC, Arc’s gas token. Pick the one that fits.</p>
         <div className="my-6 grid gap-4 sm:grid-cols-2">
-          <div className="border-2 border-ink p-5">
+          <div className="rounded-xl border border-rule bg-paper p-5">
             <p className="label">Subscription</p>
             <p className="mt-3">You top up one balance. Your contracts spend from it.</p>
             <p className="mt-2 text-muted">Good when you make requests often, or from several contracts.</p>
             <p className="mt-3 text-sm"><a href="#subscription">How to use it ↓</a></p>
           </div>
-          <div className="border-2 border-ink p-5">
+          <div className="rounded-xl border border-rule bg-paper p-5">
             <p className="label">Direct funding</p>
             <p className="mt-3">Your contract pays for each request as it makes it. No setup.</p>
             <p className="mt-2 text-muted">Good for the odd request, or when your users pay.</p>

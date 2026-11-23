@@ -1,13 +1,14 @@
 'use client'
+import { BookOpen, Calculator, Plus, Search } from 'lucide-react'
 import Link from 'next/link'
-import { NetworkStatus } from '@/components/network-status'
-import { PageHead } from '@/components/ui'
+import { NetworkStatus, RecentFulfilments } from '@/components/network-status'
+import { PageHead, appButtonClass } from '@/components/ui'
 
 const actions = [
-  { href: '/subscriptions', title: 'Create a subscription', text: 'Fund one balance and add the contracts allowed to spend it.' },
-  { href: '/direct-funding', title: 'Price a request', text: 'Fee calculator for direct funding, at the live gas price.' },
-  { href: '/requests', title: 'Trace a request', text: 'See how any number was made, step by step.' },
-  { href: '/docs#subscription', title: 'Read the quick start', text: 'Request randomness from a contract in a few lines.' },
+  { href: '/subscriptions', label: 'Create subscription', icon: Plus, primary: true },
+  { href: '/direct-funding', label: 'Price a request', icon: Calculator },
+  { href: '/requests', label: 'Trace a request', icon: Search },
+  { href: '/docs#subscription', label: 'Quick start', icon: BookOpen },
 ]
 
 export default function DashboardPage() {
@@ -15,27 +16,19 @@ export default function DashboardPage() {
     <>
       <PageHead title="Overview">Your Arc VRF tools and the live state of the network.</PageHead>
 
-      <section aria-labelledby="actions">
-        <h2 id="actions" className="label mb-2 text-muted">Quick actions</h2>
-        <ul className="grid border-t border-l border-ink sm:grid-cols-2 xl:grid-cols-4">
-          {actions.map((a) => (
-            <li key={a.href} className="border-r border-b border-ink">
-              <Link href={a.href} className="group flex h-full flex-col gap-1 p-4 transition-colors duration-100 hover:bg-ink hover:text-paper">
-                <span className="flex items-center justify-between gap-2 font-medium">
-                  {a.title}
-                  <span aria-hidden="true">→</span>
-                </span>
-                <span className="text-sm leading-relaxed text-muted group-hover:text-paper">{a.text}</span>
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </section>
+      <nav aria-label="Quick actions" className="mb-10 flex flex-wrap gap-2">
+        {actions.map(({ href, label, icon: Icon, primary }) => (
+          <Link key={href} href={href} className={appButtonClass(primary ? 'primary' : 'quiet')}>
+            <Icon size={16} strokeWidth={2} aria-hidden="true" />
+            {label}
+          </Link>
+        ))}
+      </nav>
 
-      <section aria-labelledby="network" className="mt-8">
-        <h2 id="network" className="label mb-2 text-muted">Network</h2>
+      <div className="space-y-10">
         <NetworkStatus />
-      </section>
+        <RecentFulfilments />
+      </div>
     </>
   )
 }

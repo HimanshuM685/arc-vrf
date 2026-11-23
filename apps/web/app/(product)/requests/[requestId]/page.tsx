@@ -66,11 +66,11 @@ export default function RequestPage() {
           <Fields
             rows={[
               ['Consumer', <Addr key="s" value={req.args.sender} explorer={explorer} />],
-              ['Subscription', <Link key="sub" href={`/subscriptions/${req.args.subId}`} className="hex underline-offset-4 hover:underline">{short(req.args.subId, 8, 6)}</Link>],
+              ['Subscription', <Link key="sub" href={`/subscriptions/${req.args.subId}`} className="hex text-accent underline-offset-4 hover:underline">{short(req.args.subId, 8, 6)}</Link>],
               ['Words', String(req.args.numWords)],
               ['Callback gas', req.args.callbackGasLimit!.toLocaleString('en')],
               ['Confirmations', String(req.args.minimumRequestConfirmations)],
-              ['Transaction', txLink(req.transactionHash) ? <a key="t" className="hex underline-offset-4 hover:underline" href={txLink(req.transactionHash)} target="_blank" rel="noreferrer">{short(req.transactionHash)}</a> : <span key="t" className="hex">{short(req.transactionHash)}</span>],
+              ['Transaction', txLink(req.transactionHash) ? <a key="t" className="hex text-accent underline-offset-4 hover:underline" href={txLink(req.transactionHash)} target="_blank" rel="noreferrer">{short(req.transactionHash)}</a> : <span key="t" className="hex">{short(req.transactionHash)}</span>],
             ]}
           />
         </Panel>
@@ -83,7 +83,7 @@ export default function RequestPage() {
               rows={[
                 ['Block', `${ful.blockNumber.toLocaleString('en')} (${(ful.blockNumber - req.blockNumber).toString()} after request)`],
                 ['Charged', `${usdc(ful.args.payment)} USDC`],
-                ['Transaction', txLink(ful.transactionHash) ? <a key="t" className="hex underline-offset-4 hover:underline" href={txLink(ful.transactionHash)} target="_blank" rel="noreferrer">{short(ful.transactionHash)}</a> : <span key="t" className="hex">{short(ful.transactionHash)}</span>],
+                ['Transaction', txLink(ful.transactionHash) ? <a key="t" className="hex text-accent underline-offset-4 hover:underline" href={txLink(ful.transactionHash)} target="_blank" rel="noreferrer">{short(ful.transactionHash)}</a> : <span key="t" className="hex">{short(ful.transactionHash)}</span>],
               ]}
             />
           ) : (
@@ -119,7 +119,7 @@ function Step({ n, label, value, extra }: { n: number; label: string; value: str
           <span className="font-medium">{label}</span>
           {extra}
         </div>
-        <p className="hex mt-1.5 whitespace-pre-line border-l-2 border-ink bg-code px-3 py-1.5">{value}</p>
+        <p className="hex mt-1.5 whitespace-pre-line rounded-md bg-code px-3 py-2">{value}</p>
       </div>
     </li>
   )

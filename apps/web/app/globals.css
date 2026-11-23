@@ -9,10 +9,17 @@
   --muted: #5a5b85;
   --rule: #e3e3ee;
   --code: #f4f4f9;
+  /* The landing page is monochrome: status and accent fall back to ink. The dashboard overrides them below. */
+  --verified: var(--ink);
+  --waiting: var(--ink);
+  --fault: var(--ink);
+  --accent: var(--ink);
+  --accent-soft: var(--code);
+  --app-bg: var(--paper);
 }
-/* Dark mode is the exact inversion: indigo page, white ink. */
+/* Dark mode is the exact inversion: indigo page, white ink. Landing page only: the dashboard is always light. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
+  :root:not([data-theme="light"]):not(:has([data-app])) {
     --paper: #1e1f63;
     --panel: #1e1f63;
     --ink: #ffffff;
@@ -21,7 +28,7 @@
     --code: #17184f;
   }
 }
-:root[data-theme="dark"] {
+:root[data-theme="dark"]:not(:has([data-app])) {
   --paper: #1e1f63;
   --panel: #1e1f63;
   --ink: #ffffff;
@@ -38,10 +45,13 @@
   --color-rule: var(--rule);
   --color-lane: var(--ink);
   --color-lane-ink: var(--paper);
-  --color-verified: var(--ink);
-  --color-waiting: var(--ink);
-  --color-fault: var(--ink);
+  --color-verified: var(--verified);
+  --color-waiting: var(--waiting);
+  --color-fault: var(--fault);
   --color-code: var(--code);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-app: var(--app-bg);
   --font-display: var(--font-playfair), Georgia, serif;
   --font-sans: var(--font-source-serif), Georgia, serif;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;
@@ -128,3 +138,44 @@ body::before {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ───────── Dashboard (product area) ─────────
+   A light developer-tool theme, scoped to pages that render [data-app]. Always light, whatever the OS setting;
+   :has() on html also reaches the body background and RainbowKit's portalled modals. */
+html:has([data-app]) {
+  --paper: #ffffff;
+  --panel: #ffffff;
+  --app-bg: #f7f8fa;
+  --ink: #111827;
+  --muted: #6b7280;
+  --rule: #e5e7eb;
+  --code: #f3f4f6;
+  --accent: #1e1f63;
+  --accent-soft: #eef0fb;
+  --verified: #047857;
+  --waiting: #b45309;
+  --fault: #b91c1c;
+  /* Tool UI reads better in a sans: remap the editorial faces to the system UI font (no extra download). */
+  --font-playfair: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-source-serif: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color-scheme: light;
+  background: var(--app-bg);
+}
+html:has([data-app]) body { background: var(--app-bg); }
+html:has([data-app]) body::before { display: none; }
+[data-app] h1, [data-app] h2, [data-app] h3 { letter-spacing: -0.01em; }
+[data-app] :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+[data-app] ::selection { background: var(--accent-soft); color: var(--ink); }
+[data-app] input::placeholder { font-style: normal; color: #9ca3af; }
+[data-app] .label { font-family: inherit; font-size: 0.75rem; font-weight: 500; text-transform: none; letter-spacing: 0; }
+[data-app] .alert { border: 1px solid #fde68a; background: #fffbeb; color: #92400e; border-radius: 0.5rem; padding: 0.5rem 0.75rem; }
+[data-app] .hex { font-size: 0.8rem; }
+[data-app] .prose-doc { font-size: 1rem; }
+[data-app] .prose-doc h2 { font-size: 1.5rem; font-weight: 600; border-top: 1px solid var(--rule); padding-top: 1.5rem; margin-top: 3rem; }
+[data-app] .prose-doc h3 { font-size: 1.1rem; font-weight: 600; }
+[data-app] .prose-doc pre { border: 1px solid var(--rule); border-radius: 0.75rem; }
+[data-app] .prose-doc code { border-radius: 0.25rem; }
+[data-app] .prose-doc table { border-top: 1px solid var(--rule); }
+[data-app] .prose-doc thead th { font-family: inherit; text-transform: none; letter-spacing: 0; font-size: 0.75rem; }
+[data-app] .prose-doc details:not(.group) > summary { font-weight: 600; }
+[data-app] .prose-doc details:not(.group) > summary::after { font-family: inherit; color: var(--muted); }

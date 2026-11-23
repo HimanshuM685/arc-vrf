@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { BaseError, ContractFunctionRevertedError, isAddress, parseEther, type Address } from 'viem'
 import { useAccount, useChains, useReadContracts } from 'wagmi'
-import { Addr, Badge, Button, Fields, Input, NotDeployed, PageHead, Panel, TxNote } from '@/components/ui'
+import { Addr, Badge, Button, Fields, Input, NotDeployed, PageHead, Panel, TxNote, table } from '@/components/ui'
 import { ev } from '@/lib/events'
 import { short, usdc } from '@/lib/format'
 import { systemSub, useDeployment, useLogs, useTx } from '@/lib/hooks'
@@ -56,7 +56,7 @@ export default function SubscriptionPage() {
           It doesn’t exist on {chain?.name}, or it was cancelled.
         </PageHead>
         {refund ? <RefundPanel amount={refund} /> : null}
-        <Link href="/subscriptions" className="label inline-flex min-h-11 items-center underline underline-offset-4">← Back to your subscriptions</Link>
+        <Link href="/subscriptions" className="inline-flex min-h-10 items-center text-sm font-medium text-accent hover:underline">← Back to your subscriptions</Link>
       </>
     )
   }
@@ -82,8 +82,8 @@ export default function SubscriptionPage() {
 
       <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Balance" aside={pending ? <Badge tone="waiting">Requests pending</Badge> : <Badge tone="muted">No pending requests</Badge>}>
-          <p className="font-display text-4xl font-bold tracking-tight lining-nums tabular-nums break-all">
-            {usdc(sub?.[1])} <span className="label font-normal tracking-widest text-muted">USDC</span>
+          <p className="text-3xl font-semibold tabular-nums break-all">
+            {usdc(sub?.[1])} <span className="text-base font-normal text-muted">USDC</span>
           </p>
           <div className="mt-5">
             <Fields
@@ -287,8 +287,8 @@ function History({ subId }: { subId: bigint }) {
   const byId = new Map((fulfilled.data ?? []).map((l) => [l.args.requestId, l]))
   const rows = [...(requested.data ?? [])].reverse().slice(0, 50)
   return (
-    <section className="mt-10 border-t-2 border-ink pt-6">
-      <h2 className="mb-4 text-2xl font-bold">Requests</h2>
+    <section className="mt-10 rounded-xl border border-rule bg-panel p-5 shadow-[0_1px_2px_rgb(0_0_0/0.04)] sm:p-6">
+      <h2 className="mb-4 text-base font-semibold">Requests</h2>
       {rows.length > 0 && fulfilled.isError && (
         <p className="alert mb-4" role="alert">Couldn’t read fulfilments from the Arc RPC, so some answers may show as missing. Retrying…</p>
       )}
@@ -298,28 +298,28 @@ function History({ subId }: { subId: bigint }) {
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[40rem] text-[0.95rem]">
-            <thead className="label text-left text-muted">
-              <tr className="border-b-2 border-ink">
-                <th className="py-2 pr-4 font-medium">Request</th>
-                <th className="py-2 pr-4 font-medium">Consumer</th>
-                <th className="py-2 pr-4 font-medium">Words</th>
-                <th className="py-2 pr-4 font-medium">Charged</th>
-                <th className="py-2 font-medium">Status</th>
+          <table className={`${table.table} min-w-[40rem]`}>
+            <thead>
+              <tr>
+                <th className={table.th}>Request</th>
+                <th className={table.th}>Consumer</th>
+                <th className={table.th}>Words</th>
+                <th className={table.th}>Charged</th>
+                <th className={table.th}>Status</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => {
                 const f = byId.get(r.args.requestId)
                 return (
-                  <tr key={r.transactionHash + r.logIndex} className="border-b border-rule">
-                    <td className="py-2.5 pr-4">
-                      <Link href={`/requests/${r.args.requestId}`} className="hex underline-offset-4 hover:underline">{short(r.args.requestId, 8, 6)}</Link>
+                  <tr key={r.transactionHash + r.logIndex} className={table.row}>
+                    <td className={table.td}>
+                      <Link href={`/requests/${r.args.requestId}`} className="hex text-accent underline-offset-4 hover:underline">{short(r.args.requestId, 8, 6)}</Link>
                     </td>
-                    <td className="py-2.5 pr-4 hex">{short(r.args.sender)}</td>
-                    <td className="py-2.5 pr-4">{r.args.numWords}</td>
-                    <td className="py-2.5 pr-4">{f ? `${usdc(f.args.payment)} USDC` : '—'}</td>
-                    <td className="py-2.5">
+                    <td className={`${table.td} hex`}>{short(r.args.sender)}</td>
+                    <td className={table.td}>{r.args.numWords}</td>
+                    <td className={table.td}>{f ? `${usdc(f.args.payment)} USDC` : '—'}</td>
+                    <td className={table.td}>
                       {!f ? <Badge tone="waiting">Waiting for proof</Badge> : f.args.success ? <Badge tone="verified">Delivered</Badge> : <Badge tone="fault">Callback reverted</Badge>}
                     </td>
                   </tr>

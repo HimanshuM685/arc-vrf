@@ -20,7 +20,7 @@ function Row({ label, hint, value, explorer }: { label: string; hint: string; va
         <span className="label flex gap-4 text-muted">
           <button
             type="button"
-            className="min-h-11 cursor-pointer uppercase underline-offset-4 hover:text-ink hover:underline"
+            className="min-h-10 cursor-pointer text-accent underline-offset-4 hover:underline"
             onClick={() => {
               navigator.clipboard?.writeText(value).then(() => {
                 setCopied(true)

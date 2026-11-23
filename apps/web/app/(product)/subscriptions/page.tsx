@@ -80,7 +80,7 @@ function MySubscriptions() {
               return (
                 <li key={id.toString()}>
                   <Link href={`/subscriptions/${id}`} className="group flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
-                    <span className="hex underline-offset-4 group-hover:underline">{short(id, 10, 8)} <span aria-hidden="true">→</span></span>
+                    <span className="hex text-accent underline-offset-4 group-hover:underline">{short(id, 10, 8)} <span aria-hidden="true">→</span></span>
                     <span className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
                       <span className="tabular-nums">{usdc(bal)} USDC</span>
                       <span className="text-muted">{consumers.length} consumer{consumers.length === 1 ? '' : 's'}</span>

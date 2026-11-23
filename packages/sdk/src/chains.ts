@@ -7,7 +7,18 @@ export const arcTestnet = defineChain({
   id: 5042002,
   name: 'Arc Testnet',
   nativeCurrency: usdc,
-  rpcUrls: { default: { http: ['https://rpc.testnet.arc.io'], webSocket: ['wss://rpc.testnet.arc.io'] } },
+  rpcUrls: {
+    default: {
+      // Public endpoints, tried in order. dRPC is last: its free plan caps getLogs at 100 blocks.
+      http: [
+        'https://rpc.testnet.arc.io',
+        'https://rpc.blockdaemon.testnet.arc.io',
+        'https://rpc.quicknode.testnet.arc.io',
+        'https://rpc.drpc.testnet.arc.io',
+      ],
+      webSocket: ['wss://rpc.testnet.arc.io'],
+    },
+  },
   blockExplorers: { default: { name: 'Arc Explorer', url: 'https://explorer.testnet.arc.io' } },
   testnet: true,
 })

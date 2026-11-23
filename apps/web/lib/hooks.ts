@@ -10,27 +10,39 @@ export function useDeployment() {
   return { chainId, deployment: getDeployment(chainId) }
 }
 
-/** getLogs over [from, latest], splitting the range when the RPC refuses a large query.
- * ponytail: fine for a young deployment; add an indexer once ranges get long on mainnet. */
-export async function getLogsAdaptive<E extends AbiEvent>(
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+
+/** One getLogs call over [from, to]. Rate limited: wait (1s, 2s, 4s…) and retry the same range,
+ * since splitting would only send more requests. Any other error (range too large): split in half. */
+async function getLogsRange<E extends AbiEvent>(
   client: PublicClient,
-  params: { address: Address; event: E; args?: Record<string, unknown>; fromBlock: bigint; toBlock?: bigint },
-): Promise<Log<bigint, number, false, E>[]> {
-  const toBlock = params.toBlock ?? (await client.getBlockNumber())
-  const run = async (from: bigint, to: bigint, depth: number): Promise<Log<bigint, number, false, E>[]> => {
+  params: { address: Address; event: E; args?: Record<string, unknown> },
+  from: bigint,
+  to: bigint,
+  depth = 0,
+): Promise<Log[]> {
+  for (let attempt = 0; ; attempt++) {
     try {
-      return (await client.getLogs({ ...params, fromBlock: from, toBlock: to } as never)) as never
+      return (await client.getLogs({ ...params, fromBlock: from, toBlock: to } as never)) as Log[]
     } catch (e) {
-      if (depth > 12 || to <= from) throw e
+      if (isRateLimited(e) && attempt < 5) {
+        await sleep(1_000 * 2 ** attempt)
+        continue
+      }
+      if (isRateLimited(e) || depth > 10 || to <= from) throw e
       const mid = (from + to) / 2n
-      return [...(await run(from, mid, depth + 1)), ...(await run(mid + 1n, to, depth + 1))]
+      return [...(await getLogsRange(client, params, from, mid, depth + 1)), ...(await getLogsRange(client, params, mid + 1n, to, depth + 1))]
     }
   }
-  return run(params.fromBlock, toBlock, 0)
 }
 
+// Public Arc RPCs cap getLogs ranges (Blockdaemon: 100k blocks). Scans go in chunks this size.
+const LOG_CHUNK = 10_000n
+
 // Logs already read, per query: each poll only fetches blocks after `to`. Arc has instant
-// finality and no reorgs, so cached logs never need re-reading.
+// finality and no reorgs, so cached logs never need re-reading. Saved after every chunk, so a
+// scan that fails midway resumes where it stopped.
+// ponytail: scans from deployBlock in the browser; add an indexer once ranges get long on mainnet.
 const logCache = new Map<string, { to: bigint; logs: Log[] }>()
 
 export function useLogs<E extends AbiEvent>(
@@ -47,14 +59,16 @@ export function useLogs<E extends AbiEvent>(
     queryFn: async () => {
       const c = client as PublicClient
       const cacheKey = JSON.stringify(queryKey, (_, v) => (typeof v === 'bigint' ? v.toString() : v))
-      const cached = logCache.get(cacheKey)
-      const from = cached ? cached.to + 1n : BigInt(params.fromBlock ?? 0)
       const head = await c.getBlockNumber()
-      if (from > head) return (cached?.logs ?? []) as Log<bigint, number, false, E>[]
-      const fresh = await getLogsAdaptive(c, { address: params.address!, event: params.event, args: params.args, fromBlock: from, toBlock: head })
-      const logs = [...(cached?.logs ?? []), ...(fresh as Log[])]
-      logCache.set(cacheKey, { to: head, logs })
-      return logs as Log<bigint, number, false, E>[]
+      let entry = logCache.get(cacheKey) ?? { to: BigInt(params.fromBlock ?? 0) - 1n, logs: [] }
+      while (entry.to < head) {
+        const from = entry.to + 1n
+        const to = from + LOG_CHUNK - 1n < head ? from + LOG_CHUNK - 1n : head
+        const fresh = await getLogsRange(c, { address: params.address!, event: params.event, args: params.args }, from, to)
+        entry = { to, logs: [...entry.logs, ...fresh] }
+        logCache.set(cacheKey, entry)
+      }
+      return entry.logs as Log<bigint, number, false, E>[]
     },
   })
 }

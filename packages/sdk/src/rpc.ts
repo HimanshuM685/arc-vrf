@@ -7,3 +7,11 @@ export function isRateLimited(e: unknown): boolean {
   const err = e as Error & { details?: string; shortMessage?: string }
   return RATE_LIMITED.test(`${err.message} ${err.shortMessage ?? ''} ${err.details ?? ''}`)
 }
+
+/** RPC_URL may list several endpoints, comma-separated: requests go to the first and fall back to
+ * the next when one errors (e.g. Circle's public RPC, then Blockdaemon, then QuickNode). */
+export function parseRpcUrls(rpcUrl: string): string[] {
+  const urls = rpcUrl.split(',').map((u) => u.trim()).filter(Boolean)
+  if (urls.length === 0) throw new Error('RPC_URL is empty')
+  return urls
+}

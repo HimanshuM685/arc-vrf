@@ -276,7 +276,9 @@ function History({ subId }: { subId: bigint }) {
     <section className="mt-10">
       <h2 className="mb-4 text-xl font-semibold">Requests</h2>
       {rows.length === 0 ? (
-        <p className="text-muted">{requested.isLoading ? 'Reading requests…' : 'No requests yet.'}</p>
+        <p className={requested.isError ? 'text-fault' : 'text-muted'}>
+          {requested.isError ? 'Couldn’t reach the Arc RPC. Retrying…' : requested.isLoading ? 'Reading requests…' : 'No requests yet.'}
+        </p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[40rem] text-[0.95rem]">

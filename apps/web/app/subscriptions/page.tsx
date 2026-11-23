@@ -2,12 +2,12 @@
 import { arcVRFCoordinatorAbi } from '@arc-vrf/sdk'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { parseEventLogs } from 'viem'
-import { useAccount, useChains, useReadContracts } from 'wagmi'
+import { useQuery } from '@tanstack/react-query'
+import { parseEventLogs, type Address, type PublicClient } from 'viem'
+import { useAccount, useChains, usePublicClient, useReadContracts } from 'wagmi'
 import { Badge, Button, NeedsWallet, NotDeployed, PageHead, Panel, TxNote } from '@/components/ui'
-import { ev } from '@/lib/events'
 import { short, usdc } from '@/lib/format'
-import { useDeployment, useLogs, useTx } from '@/lib/hooks'
+import { useDeployment, useTx } from '@/lib/hooks'
 
 export default function SubscriptionsPage() {
   const { chainId, deployment: d } = useDeployment()
@@ -28,15 +28,16 @@ function MySubscriptions() {
   const { address } = useAccount()
   const router = useRouter()
   const tx = useTx()
-  const created = useLogs(['created', address], { address: d!.coordinator, event: ev.subCreated, args: { owner: address }, fromBlock: d!.deployBlock })
-  const transferred = useLogs(['transferred'], { address: d!.coordinator, event: ev.subTransferred, fromBlock: d!.deployBlock })
-
-  const ids = [
-    ...new Set([
-      ...(created.data ?? []).map((l) => l.args.subId!),
-      ...(transferred.data ?? []).filter((l) => l.args.to === address).map((l) => l.args.subId!),
-    ]),
-  ]
+  const client = usePublicClient()
+  // Every live subscription id, read from the coordinator itself (no log scan, so no RPC block-range
+  // limits); ownership is checked below. Includes subscriptions transferred to this wallet.
+  const all = useQuery({
+    queryKey: ['sub-ids', client?.chain.id, d!.coordinator],
+    enabled: !!client,
+    refetchInterval: 6000,
+    queryFn: () => activeSubIds(client as PublicClient, d!.coordinator),
+  })
+  const ids = all.data ?? []
   const subs = useReadContracts({
     contracts: ids.map((id) => ({ address: d!.coordinator, abi: arcVRFCoordinatorAbi, functionName: 'getSubscription', args: [id] }) as const),
     query: { refetchInterval: 6000 },
@@ -51,7 +52,8 @@ function MySubscriptions() {
     if (log) router.push(`/subscriptions/${log.args.subId}`)
   }
 
-  const loading = created.isLoading || subs.isLoading
+  const loading = all.isLoading || subs.isLoading
+  const failed = (all.isError && !all.data) || (subs.isError && !subs.data)
   return (
     <div className="space-y-5">
       <div>
@@ -61,7 +63,9 @@ function MySubscriptions() {
         <TxNote tx={tx} done="Subscription created." />
       </div>
       <Panel title="Your subscriptions">
-        {loading ? (
+        {failed ? (
+          <p className="text-fault">Couldn’t reach the Arc RPC. Retrying…</p>
+        ) : loading ? (
           <p className="text-muted">Reading subscriptions…</p>
         ) : mine.length === 0 ? (
           <p className="text-muted">You don’t own any subscriptions on this network. Create one to get a subscription ID for your contracts.</p>
@@ -88,4 +92,22 @@ function MySubscriptions() {
       </Panel>
     </div>
   )
+}
+
+/** All active subscription ids on the coordinator, 500 per call.
+ * ponytail: reads every subscription; fine for testnet, add an indexer when there are many thousands. */
+async function activeSubIds(client: PublicClient, coordinator: Address): Promise<bigint[]> {
+  const ids: bigint[] = []
+  for (;;) {
+    let page: readonly bigint[]
+    try {
+      page = await client.readContract({ address: coordinator, abi: arcVRFCoordinatorAbi, functionName: 'getActiveSubscriptionIds', args: [BigInt(ids.length), 500n] })
+    } catch (e) {
+      // Reverts with IndexOutOfRange when the start index is past the end: no (more) subscriptions.
+      if (/IndexOutOfRange/.test(String(e))) return ids
+      throw e
+    }
+    ids.push(...page)
+    if (page.length < 500) return ids
+  }
 }

@@ -1,4 +1,4 @@
-import { ARC_MIN_MAX_FEE_PER_GAS, chains, isRateLimited } from '@arc-vrf/sdk'
+import { ARC_MIN_MAX_FEE_PER_GAS, chains, isRateLimited, parseRpcUrls } from '@arc-vrf/sdk'
 import {
   createPublicClient,
   createWalletClient,
@@ -10,14 +10,6 @@ import {
   type PublicClient,
   type Transport,
 } from 'viem'
-
-/** RPC_URL may list several endpoints, comma-separated: requests go to the first and fall back to
- * the next when one errors (e.g. Circle's public RPC, then dRPC, then QuickNode). */
-export function parseRpcUrls(rpcUrl: string): string[] {
-  const urls = rpcUrl.split(',').map((u) => u.trim()).filter(Boolean)
-  if (urls.length === 0) throw new Error('RPC_URL is empty')
-  return urls
-}
 
 export function rpcTransport(rpcUrl: string): Transport {
   const urls = parseRpcUrls(rpcUrl)
@@ -57,7 +49,7 @@ export async function arcFees(client: PublicClient) {
 
 export const log = (...args: unknown[]) => console.log(new Date().toISOString(), ...args)
 
-export { isRateLimited }
+export { isRateLimited, parseRpcUrls }
 
 /** Retries `fn` with exponential backoff (1s, 2s, 4s…) while the RPC is rate limiting. Wrap the
  * send and the receipt wait separately, so a retry never re-sends a transaction that went out. */

@@ -42,9 +42,9 @@ function HiLo() {
 
   return (
     <Panel title="Hi-Lo" aside="Subscription method">
-      <p className="text-muted">Will the next ball (1 to 20) be higher or lower? The game’s subscription pays for the randomness; you pay only gas.</p>
+      <p className="leading-relaxed text-muted">Will the next ball (1 to 20) be higher or lower? The game’s subscription pays for the randomness; you pay only gas.</p>
       <div className="mt-6 flex items-center gap-6">
-        <div className="flex size-24 shrink-0 items-center justify-center rounded-full border-2 border-ink text-4xl font-semibold tabular-nums" aria-label="Current ball">
+        <div className="flex size-24 shrink-0 items-center justify-center border-4 border-ink font-display text-5xl font-bold lining-nums tabular-nums" aria-label="Current ball">
           {ball.data ?? '…'}
         </div>
         <div className="flex flex-wrap gap-3">
@@ -86,7 +86,7 @@ function Dice() {
 
   return (
     <Panel title="Dice" aside="Direct funding">
-      <p className="text-muted">Pay per roll. The contract quotes the wrapper, pays it, and refunds your change. No subscription involved.</p>
+      <p className="leading-relaxed text-muted">Pay per roll. The contract quotes the wrapper, pays it, and refunds your change. No subscription involved.</p>
       <div className="mt-6 flex flex-wrap items-center gap-4">
         <Button onClick={() => value && tx.send({ address: d!.diceDirect, abi: diceDirectAbi, functionName: 'roll', value })} disabled={!isConnected || busy || !value}>
           Roll for about {usdc(quote.data)} USDC
@@ -102,16 +102,16 @@ function Dice() {
 function Rounds({ rows }: { rows: { id: bigint; text: string; outcome?: string; won?: boolean }[] }) {
   if (!rows.length) return null
   return (
-    <ul className="mt-6 divide-y divide-rule border-t border-rule">
+    <ul className="mt-8 divide-y divide-rule border-t-2 border-ink">
       {rows.map((r) => (
         <li key={r.id.toString()} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5 text-[0.95rem]">
-          <Link href={`/requests/${r.id}`} className="hex text-muted hover:text-lane">{short(r.id, 6, 4)}</Link>
+          <Link href={`/requests/${r.id}`} className="hex text-muted underline-offset-4 hover:text-ink hover:underline">{short(r.id, 6, 4)}</Link>
           <span>{r.text}</span>
           {r.outcome === undefined ? (
             <Badge tone="waiting">Proving</Badge>
           ) : (
             <span className="flex items-center gap-3">
-              <span className="text-xl font-semibold tabular-nums">{r.outcome}</span>
+              <span className="font-display text-2xl font-bold lining-nums tabular-nums">{r.outcome}</span>
               {r.won !== undefined && <Badge tone={r.won ? 'verified' : 'muted'}>{r.won ? 'Won' : 'Lost'}</Badge>}
             </span>
           )}

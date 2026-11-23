@@ -47,17 +47,17 @@ export function NetworkStatus() {
       </Panel>
       <Panel title="Recent fulfilments" aside={fulfilled.data ? `${fulfilled.data.length} total` : undefined}>
         {recent.length === 0 ? (
-          <p className="text-muted">No fulfilments yet. Try the <Link href="/playground" className="text-lane underline underline-offset-2">playground</Link>.</p>
+          <p className="text-muted">No fulfilments yet. Try the <Link href="/playground" className="underline underline-offset-4">playground</Link>.</p>
         ) : (
-          <ul className="divide-y divide-rule">
+          <ul className="divide-y divide-rule border-t border-rule">
             {recent.map((l) => (
               <li key={l.transactionHash} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2.5">
-                <Link href={`/requests/${l.args.requestId}`} className="hex text-ink hover:text-lane">
+                <Link href={`/requests/${l.args.requestId}`} className="hex underline-offset-4 hover:underline">
                   {short(l.args.requestId, 8, 6)}
                 </Link>
                 <span className="flex items-center gap-4 text-sm">
                   <span className="text-muted">block {l.blockNumber.toLocaleString('en')}</span>
-                  <span>{usdc(l.args.payment)} USDC</span>
+                  <span className="tabular-nums">{usdc(l.args.payment)} USDC</span>
                   {l.args.success ? <Badge tone="verified">Delivered</Badge> : <Badge tone="fault">Callback reverted</Badge>}
                 </span>
               </li>

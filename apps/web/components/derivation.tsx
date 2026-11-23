@@ -48,31 +48,25 @@ const steps = [
 export function Derivation() {
   return (
     <figure className="min-w-0">
-      <ol className="relative">
+      <ol>
         {steps.map((s, i) => (
-          <li
-            key={s.name}
-            className="derive-step relative grid grid-cols-[2rem_1fr] gap-x-4 pb-6 last:pb-0"
-            style={{ animationDelay: `${i * 140}ms` }}
-          >
+          <li key={s.name} className="relative grid grid-cols-[2.5rem_1fr] gap-x-4 pb-8 last:pb-0">
             <span
               aria-hidden="true"
-              className="relative z-10 mt-0.5 flex size-8 items-center justify-center rounded-full border border-rule bg-panel font-mono text-sm text-muted"
+              className="relative z-10 flex size-10 items-center justify-center border-2 border-ink bg-paper font-mono text-sm font-medium"
             >
-              {i + 1}
+              {String(i + 1).padStart(2, '0')}
             </span>
-            {i < steps.length - 1 && (
-              <span aria-hidden="true" className="absolute left-4 top-9 bottom-0 w-px bg-rule" />
-            )}
-            <div className="min-w-0">
+            {i < steps.length - 1 && <span aria-hidden="true" className="absolute top-10 bottom-0 left-5 w-0.5 -translate-x-1/2 bg-ink" />}
+            <div className="min-w-0 pt-1">
               <div className="flex flex-wrap items-baseline gap-x-3">
-                <h3 className="font-semibold">{s.name}</h3>
-                <span className="text-sm text-muted">{s.who}</span>
+                <h3 className="text-2xl font-bold">{s.name}</h3>
+                <span className="label text-muted">{s.who}</span>
               </div>
-              <p className="mt-1 text-[0.95rem] leading-relaxed text-muted">{s.text}</p>
-              <p className="mt-2 font-mono text-[0.8rem] text-lane">{s.formula}</p>
+              <p className="mt-2 leading-relaxed text-muted">{s.text}</p>
+              <p className="mt-3 font-mono text-[0.8rem] font-medium">{s.formula}</p>
               {s.values.map((v) => (
-                <p key={v} className="hex mt-1 rounded bg-code px-2 py-1 text-ink">
+                <p key={v} className="hex mt-1.5 border-l-2 border-ink bg-code px-3 py-1.5">
                   {v}
                 </p>
               ))}
@@ -80,10 +74,10 @@ export function Derivation() {
           </li>
         ))}
       </ol>
-      <figcaption className="mt-5 pl-12 text-sm text-muted">
+      <figcaption className="mt-8 border-t border-rule pt-4 text-sm leading-relaxed text-muted sm:pl-14">
         Real values from a Chainlink VRF v2.5 round on Base Sepolia (
-        <a className="underline underline-offset-2 hover:text-ink" href={r.requestTx} target="_blank" rel="noreferrer">request</a>,{' '}
-        <a className="underline underline-offset-2 hover:text-ink" href={r.fulfilTx} target="_blank" rel="noreferrer">fulfilment</a>
+        <a className="underline underline-offset-4 hover:text-ink" href={r.requestTx} target="_blank" rel="noreferrer">request</a>,{' '}
+        <a className="underline underline-offset-4 hover:text-ink" href={r.fulfilTx} target="_blank" rel="noreferrer">fulfilment</a>
         ), re-verified by this repo’s prover. Arc VRF runs the same math.
       </figcaption>
     </figure>

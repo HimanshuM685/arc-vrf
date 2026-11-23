@@ -35,7 +35,7 @@ Creates `.env` with three fresh keys and prints the deployer and node addresses.
 | `ALERT_WEBHOOK_URL` | no | off | Discord or Slack webhook for alerts. |
 | `MIN_BALANCE_USDC` | no | `1` | Alert when the node's gas balance drops below this. |
 | `WEB_PORT` | no | `3000` | Port the website is published on (also used without Docker). Change it, then run `make up`. |
-| `WEB_BIND` | no | `0.0.0.0` | Address the website port listens on. Set `127.0.0.1` behind a reverse proxy on the same host (step 6). |
+| `WEB_BIND` | no | all interfaces | Address the website port listens on (IPv4 and IPv6 when empty). Set `127.0.0.1` behind a reverse proxy on the same host (step 6). |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | no | empty | Enables WalletConnect / mobile wallets ([cloud.reown.com](https://cloud.reown.com)). |
 | `NEXT_PUBLIC_ARC_TESTNET_RPC` | no | public RPC | RPC the dashboard uses in the browser for Arc testnet. |
 | `NEXT_PUBLIC_ARC_MAINNET_RPC` | no | public RPC | RPC the dashboard uses in the browser for Arc mainnet. |
@@ -86,7 +86,7 @@ The website is on port `WEB_PORT` (default 3000). Open **Playground** and roll t
 ## 6. HTTPS
 
 ```bash
-set -a && . ./.env && set +a
+WEB_PORT=$(grep -E '^WEB_PORT=' .env | cut -d= -f2)   # only the port: the proxy never needs the keys
 caddy reverse-proxy --from vrf.example.com --to "127.0.0.1:${WEB_PORT:-3000}"
 ```
 
@@ -155,8 +155,10 @@ Pending requests survive restarts: the node re-reads them from the chain and ans
 ### RPC failover
 
 ```
-RPC_URL=https://rpc.testnet.arc.io,https://rpc.drpc.testnet.arc.io,https://rpc.quicknode.testnet.arc.io
+RPC_URL=https://rpc.testnet.arc.io,https://rpc.blockdaemon.testnet.arc.io,https://rpc.quicknode.testnet.arc.io,https://rpc.drpc.testnet.arc.io
 ```
+
+Keep dRPC last: its free plan caps `getLogs` at 100 blocks, below the node's 2,000-block scans.
 
 The node uses the first URL and switches to the next when a call errors or is rate-limited. A paid RPC as the first entry is recommended for production.
 

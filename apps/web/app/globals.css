@@ -1,34 +1,34 @@
 @import "tailwindcss";
 @import "@rainbow-me/rainbowkit/styles.css";
 
-/* Tokens. Cool slate paper, lane blue for actions, verdigris for "verified", amber for "waiting". */
+/* Minimalist Monochrome. Black, white, and grays only for secondary text and hairlines.
+   Status tokens (verified / waiting / fault) all resolve to ink: state is shown by shape and words, not hue. */
 :root {
-  --paper: #f2f4f1;
-  --panel: #fbfcfa;
-  --ink: #14202b;
-  --muted: #5b6874;
-  --rule: #cdd5da;
-  --lane: #2b59c3;
-  --lane-ink: #ffffff;
-  --verified: #2f8f83;
-  --waiting: #b07a10;
-  --fault: #b5432f;
-  --code: #e7ebe6;
+  --paper: #ffffff;
+  --panel: #ffffff;
+  --ink: #000000;
+  --muted: #525252;
+  --rule: #e5e5e5;
+  --code: #f5f5f5;
 }
+/* Dark mode is the exact inversion: still strictly monochrome. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #0f1820;
-    --panel: #15212b;
-    --ink: #e3e9ed;
-    --muted: #93a1ad;
-    --rule: #2a3946;
-    --lane: #7d9ff0;
-    --lane-ink: #0f1820;
-    --verified: #5cc0b2;
-    --waiting: #e0a93c;
-    --fault: #ec8370;
-    --code: #1b2933;
+    --paper: #000000;
+    --panel: #000000;
+    --ink: #ffffff;
+    --muted: #a3a3a3;
+    --rule: #262626;
+    --code: #111111;
   }
+}
+:root[data-theme="dark"] {
+  --paper: #000000;
+  --panel: #000000;
+  --ink: #ffffff;
+  --muted: #a3a3a3;
+  --rule: #262626;
+  --code: #111111;
 }
 
 @theme inline {
@@ -37,45 +37,95 @@
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-rule: var(--rule);
-  --color-lane: var(--lane);
-  --color-lane-ink: var(--lane-ink);
-  --color-verified: var(--verified);
-  --color-waiting: var(--waiting);
-  --color-fault: var(--fault);
+  --color-lane: var(--ink);
+  --color-lane-ink: var(--paper);
+  --color-verified: var(--ink);
+  --color-waiting: var(--ink);
+  --color-fault: var(--ink);
   --color-code: var(--code);
-  --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  --font-display: var(--font-playfair), Georgia, serif;
+  --font-sans: var(--font-source-serif), Georgia, serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
 }
 
-html { background: var(--paper); color: var(--ink); }
-body { background: var(--paper); color: var(--ink); font-feature-settings: "ss01"; }
-:focus-visible { outline: 2px solid var(--lane); outline-offset: 2px; border-radius: 3px; }
-::selection { background: color-mix(in srgb, var(--lane) 25%, transparent); }
+html { background: var(--paper); color: var(--ink); color-scheme: light dark; }
+body { background: var(--paper); color: var(--ink); overflow-x: clip; }
+h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.025em; }
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+::selection { background: var(--ink); color: var(--paper); }
+input::placeholder { color: var(--muted); font-style: italic; }
+
+/* Paper texture: faint horizontal rules across the whole page. Pure CSS, painted once. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(0deg, transparent 0 3px, var(--ink) 3px 4px);
+  opacity: 0.025;
+}
+/* White vertical lines for inverted (black) bands. */
+.tex-vlines { position: relative; isolation: isolate; }
+.tex-vlines::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(90deg, transparent 0 3px, var(--paper) 3px 4px);
+  opacity: 0.06;
+}
+/* Diagonal lines for process sections. */
+.tex-diag {
+  background-image: repeating-linear-gradient(45deg, transparent 0 40px, color-mix(in srgb, var(--ink) 4%, transparent) 40px 42px);
+}
+
+/* Small caps label: eyebrows, field names, nav, badges, buttons. */
+.label {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.2;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
 
 /* Hex values break anywhere rather than overflow on small screens. */
 .hex { font-family: var(--font-mono); overflow-wrap: anywhere; font-size: 0.82rem; }
 
-.prose-doc h2 { font-size: 1.5rem; font-weight: 650; letter-spacing: -0.01em; margin: 2.5rem 0 0.75rem; }
-.prose-doc h3 { font-size: 1.1rem; font-weight: 650; margin: 1.75rem 0 0.5rem; }
-.prose-doc p, .prose-doc li { line-height: 1.65; max-width: 70ch; }
-.prose-doc p { margin: 0.75rem 0; }
-.prose-doc ul { list-style: disc; padding-left: 1.25rem; }
+/* Warnings and errors: no red or amber, so a heavy left rule carries the emphasis. */
+.alert { border-left: 4px solid var(--ink); padding-left: 0.75rem; font-weight: 500; }
+
+.no-scrollbar { scrollbar-width: none; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+
+.prose-doc { font-size: 1.0625rem; }
+.prose-doc h2 { font-size: clamp(1.75rem, 4vw, 2.5rem); line-height: 1.1; font-weight: 700; border-top: 4px solid var(--ink); padding-top: 1.25rem; margin: 4rem 0 1rem; scroll-margin-top: 6rem; }
+.prose-doc h3 { font-size: 1.35rem; font-weight: 700; margin: 2rem 0 0.5rem; scroll-margin-top: 6rem; }
+.prose-doc p, .prose-doc li { line-height: 1.7; max-width: 70ch; }
+.prose-doc p { margin: 0.85rem 0; }
+.prose-doc ul { list-style: square; padding-left: 1.25rem; }
 .prose-doc ol { list-style: decimal; padding-left: 1.25rem; }
-.prose-doc code { font-family: var(--font-mono); font-size: 0.85em; background: var(--code); padding: 0.1em 0.35em; border-radius: 4px; }
-.prose-doc pre { background: var(--code); border-radius: 8px; padding: 1rem; overflow-x: auto; margin: 1rem 0; font-size: 0.82rem; line-height: 1.55; }
+.prose-doc li + li { margin-top: 0.35rem; }
+.prose-doc code { font-family: var(--font-mono); font-size: 0.82em; background: var(--code); padding: 0.1em 0.35em; }
+.prose-doc pre { background: var(--code); border: 1px solid var(--ink); padding: 1.25rem; overflow-x: auto; margin: 1.25rem 0; font-size: 0.8rem; line-height: 1.6; }
 .prose-doc pre code { background: none; padding: 0; }
-.prose-doc table { border-collapse: collapse; margin: 1rem 0; font-size: 0.9rem; display: block; overflow-x: auto; }
-.prose-doc th, .prose-doc td { border-bottom: 1px solid var(--rule); padding: 0.5rem 0.75rem 0.5rem 0; text-align: left; vertical-align: top; }
-.prose-doc th { font-weight: 600; }
-.prose-doc a { color: var(--lane); text-decoration: underline; text-underline-offset: 2px; }
+.prose-doc table { border-collapse: collapse; margin: 1.25rem 0; font-size: 0.95rem; display: block; overflow-x: auto; border-top: 2px solid var(--ink); }
+.prose-doc th, .prose-doc td { border-bottom: 1px solid var(--rule); padding: 0.6rem 1rem 0.6rem 0; text-align: left; vertical-align: top; }
+.prose-doc thead th { font-family: var(--font-mono); font-size: 0.7rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.prose-doc tbody th { font-weight: 600; white-space: nowrap; }
+.prose-doc a { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1px; }
+.prose-doc a:hover { text-decoration-thickness: 2px; }
+.prose-doc strong { font-weight: 700; }
+/* Collapsible sections (FAQ, reference). The mobile "On this page" box styles itself. */
+.prose-doc details:not(.group) { border-bottom: 1px solid var(--rule); }
+.prose-doc details:not(.group) > summary { display: flex; min-height: 2.75rem; cursor: pointer; list-style: none; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.75rem 0; font-weight: 700; }
+.prose-doc details:not(.group) > summary::-webkit-details-marker { display: none; }
+.prose-doc details:not(.group) > summary::after { content: '+'; font-family: var(--font-mono); font-weight: 400; }
+.prose-doc details[open]:not(.group) > summary::after { content: '−'; }
+.prose-doc details:not(.group) > summary:hover { text-decoration: underline; text-underline-offset: 4px; }
+.prose-doc details:not(.group)[open] { padding-bottom: 1rem; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
-
-/* The page's one orchestrated moment: the derivation assembles step by step on load. */
-@keyframes derive-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-}
-.derive-step { animation: derive-in 420ms cubic-bezier(.2,.7,.2,1) both; }

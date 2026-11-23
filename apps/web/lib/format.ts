@@ -25,3 +25,5 @@ export function explorerTx(base: string | undefined, hash: string) {
 export function explorerAddress(base: string | undefined, addr: string) {
   return base ? `${base}/address/${addr}` : undefined
 }
+
+export const REPO = 'https://github.com/HimanshuM685/arc-vrf'

@@ -7,6 +7,12 @@ describe('withRetry', () => {
     expect(isRateLimited(new Error('HTTP request failed. Status: 429'))).toBe(true)
     expect(isRateLimited(new Error('execution reverted: InvalidConsumer'))).toBe(false)
     expect(isRateLimited(new Error('gas required exceeds allowance'))).toBe(false)
+    // Range limits must split, not wait; amounts like 0.429 must not look like HTTP 429.
+    expect(isRateLimited(new Error('eth_getLogs block range limit exceeded'))).toBe(false)
+    expect(isRateLimited(new Error('Request exceeds defined limit. Details: query returned more than 10000 results'))).toBe(false)
+    expect(isRateLimited(new Error('execution reverted\n  value: 0.429 USDC'))).toBe(false)
+    expect(isRateLimited(Object.assign(new Error('call failed'), { cause: { status: 429 } }))).toBe(true)
+    expect(isRateLimited(new Error('project ID request rate exceeded'))).toBe(true)
   })
 
   it('retries rate limits, then returns', async () => {

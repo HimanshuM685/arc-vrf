@@ -17,7 +17,8 @@ services:
         NEXT_PUBLIC_ARC_MAINNET_RPC: ${NEXT_PUBLIC_ARC_MAINNET_RPC:-}
     image: arc-vrf:latest
     ports:
-      - "${WEB_BIND:-0.0.0.0}:${WEB_PORT:-3000}:3000"
+      # Empty WEB_BIND publishes on every interface, IPv4 and IPv6.
+      - "${WEB_BIND:+${WEB_BIND}:}${WEB_PORT:-3000}:3000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]

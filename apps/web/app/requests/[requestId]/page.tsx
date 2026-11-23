@@ -62,15 +62,15 @@ export default function RequestPage() {
         <span className="hex break-all text-base text-ink">{requestId.toString()}</span>
       </PageHead>
       <div className="grid gap-5 lg:grid-cols-2">
-        <Panel title="Asked" aside={<span className="text-sm">block {req.blockNumber.toLocaleString('en')}</span>}>
+        <Panel title="Asked" aside={<span>block {req.blockNumber.toLocaleString('en')}</span>}>
           <Fields
             rows={[
               ['Consumer', <Addr key="s" value={req.args.sender} explorer={explorer} />],
-              ['Subscription', <Link key="sub" href={`/subscriptions/${req.args.subId}`} className="hex hover:text-lane">{short(req.args.subId, 8, 6)}</Link>],
+              ['Subscription', <Link key="sub" href={`/subscriptions/${req.args.subId}`} className="hex underline-offset-4 hover:underline">{short(req.args.subId, 8, 6)}</Link>],
               ['Words', String(req.args.numWords)],
               ['Callback gas', req.args.callbackGasLimit!.toLocaleString('en')],
               ['Confirmations', String(req.args.minimumRequestConfirmations)],
-              ['Transaction', txLink(req.transactionHash) ? <a key="t" className="hex hover:text-lane" href={txLink(req.transactionHash)} target="_blank" rel="noreferrer">{short(req.transactionHash)}</a> : <span key="t" className="hex">{short(req.transactionHash)}</span>],
+              ['Transaction', txLink(req.transactionHash) ? <a key="t" className="hex underline-offset-4 hover:underline" href={txLink(req.transactionHash)} target="_blank" rel="noreferrer">{short(req.transactionHash)}</a> : <span key="t" className="hex">{short(req.transactionHash)}</span>],
             ]}
           />
         </Panel>
@@ -83,7 +83,7 @@ export default function RequestPage() {
               rows={[
                 ['Block', `${ful.blockNumber.toLocaleString('en')} (${(ful.blockNumber - req.blockNumber).toString()} after request)`],
                 ['Charged', `${usdc(ful.args.payment)} USDC`],
-                ['Transaction', txLink(ful.transactionHash) ? <a key="t" className="hex hover:text-lane" href={txLink(ful.transactionHash)} target="_blank" rel="noreferrer">{short(ful.transactionHash)}</a> : <span key="t" className="hex">{short(ful.transactionHash)}</span>],
+                ['Transaction', txLink(ful.transactionHash) ? <a key="t" className="hex underline-offset-4 hover:underline" href={txLink(ful.transactionHash)} target="_blank" rel="noreferrer">{short(ful.transactionHash)}</a> : <span key="t" className="hex">{short(ful.transactionHash)}</span>],
               ]}
             />
           ) : (
@@ -113,13 +113,13 @@ export default function RequestPage() {
 function Step({ n, label, value, extra }: { n: number; label: string; value: string; extra?: React.ReactNode }) {
   return (
     <li className="grid grid-cols-[1.75rem_1fr] gap-x-3">
-      <span className="font-mono text-sm text-muted">{n}</span>
+      <span className="font-mono text-sm font-medium">{String(n).padStart(2, '0')}</span>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-x-3 text-[0.95rem]">
           <span className="font-medium">{label}</span>
           {extra}
         </div>
-        <p className="hex mt-1 whitespace-pre-line rounded bg-code px-2 py-1">{value}</p>
+        <p className="hex mt-1.5 whitespace-pre-line border-l-2 border-ink bg-code px-3 py-1.5">{value}</p>
       </div>
     </li>
   )

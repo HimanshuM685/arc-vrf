@@ -31,14 +31,18 @@ const connectors = connectorsForWallets(
   { appName: 'Arc VRF', projectId: projectId ?? 'unset' },
 )
 
-const rpcOptions = { batch: { wait: 50 }, retryCount: 2, retryDelay: 500 } as const
+const batch = { wait: 50 } as const
 
 // batch: the dashboard's many small reads go out as one HTTP request per tick. fallback: when one
 // public RPC rate limits or refuses a query, the next one answers. The env var (comma list
 // allowed) replaces the chain's public list, e.g. with a dedicated RPC for production.
 function transport(chain: Chain, env: string | undefined): Transport {
-  const urls = env ? parseRpcUrls(env) : [...chain.rpcUrls.default.http]
-  return urls.length === 1 ? http(urls[0], rpcOptions) : fallback(urls.map((u) => http(u, rpcOptions)))
+  // A value of only commas/spaces counts as unset rather than crashing every page.
+  const urls = env?.replace(/[\s,]/g, '') ? parseRpcUrls(env) : [...chain.rpcUrls.default.http]
+  // Retries live in one layer only: per-URL retries inside a fallback multiply into dozens of requests.
+  return urls.length === 1
+    ? http(urls[0], { batch, retryCount: 2, retryDelay: 500 })
+    : fallback(urls.map((u) => http(u, { batch, retryCount: 0 })), { retryCount: 1, retryDelay: 500 })
 }
 
 export const wagmiConfig = createConfig({

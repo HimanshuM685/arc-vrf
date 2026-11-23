@@ -2,12 +2,13 @@
 import { arcVRFCoordinatorAbi } from '@arc-vrf/sdk'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useQuery } from '@tanstack/react-query'
-import { parseEventLogs, type Address, type PublicClient } from 'viem'
-import { useAccount, useChains, usePublicClient, useReadContracts } from 'wagmi'
+import { keepPreviousData } from '@tanstack/react-query'
+import { ContractFunctionRevertedError, parseEventLogs, type BaseError } from 'viem'
+import { useAccount, useChains, useReadContracts } from 'wagmi'
 import { Badge, Button, NeedsWallet, NotDeployed, PageHead, Panel, TxNote } from '@/components/ui'
+import { ev } from '@/lib/events'
 import { short, usdc } from '@/lib/format'
-import { useDeployment, useTx } from '@/lib/hooks'
+import { systemSub, useDeployment, useLogs, useTx } from '@/lib/hooks'
 
 export default function SubscriptionsPage() {
   const { chainId, deployment: d } = useDeployment()
@@ -28,23 +29,26 @@ function MySubscriptions() {
   const { address } = useAccount()
   const router = useRouter()
   const tx = useTx()
-  const client = usePublicClient()
-  // Every live subscription id, read from the coordinator itself (no log scan, so no RPC block-range
-  // limits); ownership is checked below. Includes subscriptions transferred to this wallet.
-  const all = useQuery({
-    queryKey: ['sub-ids', client?.chain.id, d!.coordinator],
-    enabled: !!client,
-    refetchInterval: 6000,
-    queryFn: () => activeSubIds(client as PublicClient, d!.coordinator),
-  })
-  const ids = all.data ?? []
+  // Candidates: subscriptions this wallet created or was transferred (owner is an indexed topic, so
+  // the scan is cheap). Only these are read; current ownership is checked below.
+  const created = useLogs(['created', address], { address: d!.coordinator, event: ev.subCreated, args: { owner: address }, fromBlock: d!.deployBlock })
+  const transferred = useLogs(['transferred'], { address: d!.coordinator, event: ev.subTransferred, fromBlock: d!.deployBlock })
+  const ids = [
+    ...new Set([
+      ...(created.data ?? []).map((l) => l.args.subId!),
+      ...(transferred.data ?? []).filter((l) => l.args.to === address).map((l) => l.args.subId!),
+    ]),
+  ]
   const subs = useReadContracts({
     contracts: ids.map((id) => ({ address: d!.coordinator, abi: arcVRFCoordinatorAbi, functionName: 'getSubscription', args: [id] }) as const),
-    query: { refetchInterval: 6000 },
+    query: { refetchInterval: 6000, placeholderData: keepPreviousData },
   })
-  const mine = ids
-    .map((id, i) => ({ id, r: subs.data?.[i] }))
-    .filter((s) => s.r?.status === 'success' && (s.r.result as readonly unknown[])[3] === address)
+  const rows = ids.map((id, i) => ({ id, r: subs.data?.[i] }))
+  const mine = rows.filter((s) => s.r?.status === 'success' && (s.r.result as readonly unknown[])[3] === address)
+  // A revert means the subscription is gone (cancelled); any other failure means we couldn't read it.
+  const unreadable = rows.some(
+    (s) => s.r?.status === 'failure' && !(s.r.error as BaseError).walk?.((e) => e instanceof ContractFunctionRevertedError),
+  )
 
   async function create() {
     const r = await tx.send({ address: d!.coordinator, abi: arcVRFCoordinatorAbi, functionName: 'createSubscription' })
@@ -52,8 +56,8 @@ function MySubscriptions() {
     if (log) router.push(`/subscriptions/${log.args.subId}`)
   }
 
-  const loading = all.isLoading || subs.isLoading
-  const failed = (all.isError && !all.data) || (subs.isError && !subs.data)
+  const loading = created.isLoading || transferred.isLoading || subs.isLoading
+  const failed = created.isError || transferred.isError || (subs.isError && !subs.data) || (unreadable && mine.length === 0)
   return (
     <div className="space-y-5">
       <div>
@@ -64,7 +68,7 @@ function MySubscriptions() {
       </div>
       <Panel title="Your subscriptions">
         {failed ? (
-          <p className="text-fault">Couldn’t reach the Arc RPC. Retrying…</p>
+          <p className="alert" role="alert">Couldn’t reach the Arc RPC. Retrying…</p>
         ) : loading ? (
           <p className="text-muted">Reading subscriptions…</p>
         ) : mine.length === 0 ? (
@@ -75,12 +79,14 @@ function MySubscriptions() {
               const [, bal, reqs, , consumers] = r!.result as readonly [bigint, bigint, bigint, string, readonly string[]]
               return (
                 <li key={id.toString()}>
-                  <Link href={`/subscriptions/${id}`} className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 py-3 hover:text-lane">
-                    <span className="hex">{short(id, 10, 8)}</span>
+                  <Link href={`/subscriptions/${id}`} className="group flex min-h-14 flex-wrap items-center justify-between gap-x-6 gap-y-2 py-3">
+                    <span className="hex underline-offset-4 group-hover:underline">{short(id, 10, 8)} <span aria-hidden="true">→</span></span>
                     <span className="flex flex-wrap items-center gap-x-5 gap-y-1 text-sm">
-                      <span>{usdc(bal)} USDC</span>
+                      <span className="tabular-nums">{usdc(bal)} USDC</span>
                       <span className="text-muted">{consumers.length} consumer{consumers.length === 1 ? '' : 's'}</span>
                       <span className="text-muted">{reqs.toString()} fulfilled</span>
+                      {systemSub(d, id) === 'wrapper' && <Badge tone="verified">Direct-funding pool</Badge>}
+                      {systemSub(d, id) === 'hilo' && <Badge tone="verified">Playground sample</Badge>}
                       {bal === 0n && <Badge tone="waiting">Needs funding</Badge>}
                     </span>
                   </Link>
@@ -89,25 +95,14 @@ function MySubscriptions() {
             })}
           </ul>
         )}
+        {mine.some(({ id }) => systemSub(d, id)) && (
+          <p className="mt-4 text-sm text-muted">
+            Marked subscriptions were created and funded by the deploy script, from this wallet (the deployer). The USDC
+            in them came from this wallet when the contracts were deployed.
+          </p>
+        )}
       </Panel>
     </div>
   )
 }
 
-/** All active subscription ids on the coordinator, 500 per call.
- * ponytail: reads every subscription; fine for testnet, add an indexer when there are many thousands. */
-async function activeSubIds(client: PublicClient, coordinator: Address): Promise<bigint[]> {
-  const ids: bigint[] = []
-  for (;;) {
-    let page: readonly bigint[]
-    try {
-      page = await client.readContract({ address: coordinator, abi: arcVRFCoordinatorAbi, functionName: 'getActiveSubscriptionIds', args: [BigInt(ids.length), 500n] })
-    } catch (e) {
-      // Reverts with IndexOutOfRange when the start index is past the end: no (more) subscriptions.
-      if (/IndexOutOfRange/.test(String(e))) return ids
-      throw e
-    }
-    ids.push(...page)
-    if (page.length < 500) return ids
-  }
-}

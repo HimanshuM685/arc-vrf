@@ -1,5 +1,5 @@
 'use client'
-import { getDeployment, isRateLimited, ARC_MIN_MAX_FEE_PER_GAS } from '@arc-vrf/sdk'
+import { getDeployment, isRateLimited, retryRateLimited, ARC_MIN_MAX_FEE_PER_GAS, type Deployment } from '@arc-vrf/sdk'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import type { Abi, AbiEvent, Address, Hex, Log, PublicClient } from 'viem'
@@ -10,7 +10,13 @@ export function useDeployment() {
   return { chainId, deployment: getDeployment(chainId) }
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+/** Subscriptions the deploy script creates and funds from the deployer wallet: the wrapper's
+ * pool (pays every direct-funding request) and the Hi-Lo sample game's. */
+export function systemSub(d: Deployment | undefined, id: bigint | undefined): 'wrapper' | 'hilo' | undefined {
+  if (!d || id === undefined) return undefined
+  if (id === BigInt(d.wrapperSubId)) return 'wrapper'
+  if (id === BigInt(d.hiLoSubId)) return 'hilo'
+}
 
 /** One getLogs call over [from, to]. Rate limited: wait (1s, 2s, 4s…) and retry the same range,
  * since splitting would only send more requests. Any other error (range too large): split in half. */
@@ -21,26 +27,24 @@ async function getLogsRange<E extends AbiEvent>(
   to: bigint,
   depth = 0,
 ): Promise<Log[]> {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return (await client.getLogs({ ...params, fromBlock: from, toBlock: to } as never)) as Log[]
-    } catch (e) {
-      if (isRateLimited(e) && attempt < 5) {
-        await sleep(1_000 * 2 ** attempt)
-        continue
-      }
-      if (isRateLimited(e) || depth > 10 || to <= from) throw e
-      const mid = (from + to) / 2n
-      return [...(await getLogsRange(client, params, from, mid, depth + 1)), ...(await getLogsRange(client, params, mid + 1n, to, depth + 1))]
-    }
+  try {
+    return await retryRateLimited(() => client.getLogs({ ...params, fromBlock: from, toBlock: to } as never) as Promise<Log[]>, 6)
+  } catch (e) {
+    if (isRateLimited(e) || depth > 12 || to <= from) throw e
+    const mid = (from + to) / 2n
+    return [...(await getLogsRange(client, params, from, mid, depth + 1)), ...(await getLogsRange(client, params, mid + 1n, to, depth + 1))]
   }
 }
 
-// Public Arc RPCs cap getLogs ranges (Blockdaemon: 100k blocks). Scans go in chunks this size.
-const LOG_CHUNK = 10_000n
+// Largest range public Arc RPCs accept (Blockdaemon: 100k blocks); smaller caps split on error.
+const LOG_CHUNK = 100_000n
+// The fallback transport may answer getBlockNumber and getLogs from different providers, and one
+// may be a few blocks behind. The newest blocks are re-read every poll and only cached once older
+// than this, so a lagging provider can't make the cache skip their logs.
+const SETTLE_BLOCKS = 64n
 
 // Logs already read, per query: each poll only fetches blocks after `to`. Arc has instant
-// finality and no reorgs, so cached logs never need re-reading. Saved after every chunk, so a
+// finality and no reorgs, so settled logs never need re-reading. Saved after every chunk, so a
 // scan that fails midway resumes where it stopped.
 // ponytail: scans from deployBlock in the browser; add an indexer once ranges get long on mainnet.
 const logCache = new Map<string, { to: bigint; logs: Log[] }>()
@@ -56,19 +60,26 @@ export function useLogs<E extends AbiEvent>(
     queryKey,
     enabled: !!client && !!params.address && opts.enabled !== false,
     refetchInterval: opts.refetchMs ?? 4000,
+    retry: 1, // getLogsRange already retries rate limits; more layers only multiply requests
     queryFn: async () => {
       const c = client as PublicClient
       const cacheKey = JSON.stringify(queryKey, (_, v) => (typeof v === 'bigint' ? v.toString() : v))
       const head = await c.getBlockNumber()
+      const settled = head - SETTLE_BLOCKS
       let entry = logCache.get(cacheKey) ?? { to: BigInt(params.fromBlock ?? 0) - 1n, logs: [] }
-      while (entry.to < head) {
-        const from = entry.to + 1n
+      const recent: Log[] = []
+      for (let from = entry.to + 1n; from <= head; ) {
         const to = from + LOG_CHUNK - 1n < head ? from + LOG_CHUNK - 1n : head
         const fresh = await getLogsRange(c, { address: params.address!, event: params.event, args: params.args }, from, to)
-        entry = { to, logs: [...entry.logs, ...fresh] }
+        if (to <= settled) entry = { to, logs: [...entry.logs, ...fresh] }
+        else {
+          recent.push(...fresh.filter((l) => l.blockNumber! > settled))
+          if (settled > entry.to) entry = { to: settled, logs: [...entry.logs, ...fresh.filter((l) => l.blockNumber! <= settled)] }
+        }
         logCache.set(cacheKey, entry)
+        from = to + 1n
       }
-      return entry.logs as Log<bigint, number, false, E>[]
+      return [...entry.logs, ...recent] as Log<bigint, number, false, E>[]
     },
   })
 }
@@ -96,7 +107,8 @@ export function useTx() {
       } as never)
       sent = hash
       setState({ status: 'pending', hash })
-      const r = await client.waitForTransactionReceipt({ hash })
+      // Safe to retry: waiting never re-sends. Without this a mined tx shows as an error.
+      const r = await retryRateLimited(() => client.waitForTransactionReceipt({ hash }), 5)
       if (r.status !== 'success') throw new Error('Transaction reverted on-chain.')
       setState({ status: 'done', hash })
       await qc.invalidateQueries()

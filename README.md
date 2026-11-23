@@ -65,14 +65,26 @@ The full design (components, the two payment paths, how the node stays correct a
 
 | Contract | Address |
 |---|---|
-| Coordinator | `0xc97f22a52ecb0f8400a2e44a710f141a572471ae` |
-| Wrapper (direct funding) | `0x5c0fa592b86102e0f82ececcd61f0e04d6cb9ab7` |
+| Coordinator | `0xe852aab2d5c609b89ea2b39e1451608d8649827a` |
+| Wrapper (direct funding) | `0xd854d5f611938f60d614a69ec58033d37af54d75` |
 | Key hash | `0xcf39e27191d1d13c8fec1a175eda831392ef974fe21a5a0a0680c3a22c6deb88` |
-| BlockhashStore | `0xe1bbc1c64add044ce831869c89afef02ab2d48d5` |
+| BlockhashStore | `0x57b28753a79edcea25f1790c971135a853ef82e2` |
+| Batch helper | `0x8861dcba2d13d6d0723c9b7e56a0d88758dc8273` |
+| HiLoGame sample | `0xdb7cc22d59c3d2590ac2528f252cdacb12eb6b2e` |
+| DiceDirect sample | `0x9c4ce3bc6469d1c5018b761e62b0bc4b42098dea` |
 
-Chain ID 5042002. The source of truth is [`contracts/deployments/5042002.json`](contracts/deployments/5042002.json); the dashboard's Docs page lists the current addresses for every chain.
+Chain ID 5042002, RPC `https://rpc.testnet.arc.io`, gas paid in USDC. The source of truth is [`contracts/deployments/5042002.json`](contracts/deployments/5042002.json); the dashboard's Docs page always shows the current addresses.
 
 ## Use it from a contract
+
+Add the contracts to your Foundry project:
+
+```bash
+forge install HimanshuM685/arc-vrf
+echo 'arc-vrf/=lib/arc-vrf/contracts/src/' >> remappings.txt
+```
+
+Then inherit `ArcVRFConsumerBase`:
 
 ```solidity
 import {ArcVRFConsumerBase} from "arc-vrf/ArcVRFConsumerBase.sol";
@@ -94,7 +106,7 @@ contract Raffle is ArcVRFConsumerBase {
 }
 ```
 
-Then create and fund a subscription on the dashboard and add the contract as a consumer. The developer guide on the site (`/docs`) covers both payment methods, every request parameter, fees, porting from Chainlink and security rules.
+Create and fund a subscription on the dashboard, then add the contract as a consumer. The dashboard's Docs page walks through both payment methods step by step.
 
 ## Run it locally
 

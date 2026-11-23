@@ -8,7 +8,7 @@ import { useAccount, useChains, useReadContracts } from 'wagmi'
 import { Addr, Badge, Button, Fields, Input, NotDeployed, PageHead, Panel, TxNote } from '@/components/ui'
 import { ev } from '@/lib/events'
 import { short, usdc } from '@/lib/format'
-import { useDeployment, useLogs, useTx } from '@/lib/hooks'
+import { systemSub, useDeployment, useLogs, useTx } from '@/lib/hooks'
 
 export default function SubscriptionPage() {
   const params = useParams<{ subId: string }>()
@@ -56,7 +56,7 @@ export default function SubscriptionPage() {
           It doesn’t exist on {chain?.name}, or it was cancelled.
         </PageHead>
         {refund ? <RefundPanel amount={refund} /> : null}
-        <Link href="/subscriptions" className="text-lane underline underline-offset-2">Back to your subscriptions</Link>
+        <Link href="/subscriptions" className="label inline-flex min-h-11 items-center underline underline-offset-4">← Back to your subscriptions</Link>
       </>
     )
   }
@@ -72,10 +72,24 @@ export default function SubscriptionPage() {
         <span className="hex break-all text-base text-ink">{subId.toString()}</span>
       </PageHead>
 
+      {systemSub(d, subId) === 'wrapper' && (
+        <p className="alert mb-6 max-w-[70ch]">
+          This is the direct-funding pool. It pays for every request made through the wrapper, including the Dice game.
+          The deploy script created it and funded it with USDC from the deployer wallet. Cancelling it would stop direct
+          funding for everyone, so cancelling is turned off here. Top it up when it runs low.
+        </p>
+      )}
+      {systemSub(d, subId) === 'hilo' && (
+        <p className="alert mb-6 max-w-[70ch]">
+          This subscription pays for the Hi-Lo game on Playground. The deploy script created it and funded it with USDC
+          from the deployer wallet.
+        </p>
+      )}
+
       <div className="grid gap-5 lg:grid-cols-2">
         <Panel title="Balance" aside={pending ? <Badge tone="waiting">Requests pending</Badge> : <Badge tone="muted">No pending requests</Badge>}>
-          <p className="text-4xl font-semibold tracking-tight">
-            {usdc(sub?.[1])} <span className="text-xl font-normal text-muted">USDC</span>
+          <p className="font-display text-5xl font-bold tracking-tighter lining-nums tabular-nums break-all sm:text-6xl">
+            {usdc(sub?.[1])} <span className="label font-normal tracking-widest text-muted">USDC</span>
           </p>
           <div className="mt-5">
             <Fields
@@ -230,6 +244,11 @@ function Ownership({ subId, isOwner, requestedOwner, pending }: { subId: bigint;
         </div>
         <Button type="submit" variant="quiet" disabled={!isAddress(to)}>Offer ownership</Button>
       </form>
+      {systemSub(d, subId) === 'wrapper' ? (
+        <p className="mt-6 border-t border-rule pt-5 text-sm text-muted">
+          Cancelling is turned off for the direct-funding pool: it would stop every direct-funding request.
+        </p>
+      ) : (
       <form
         className="mt-6 flex flex-wrap items-end gap-3 border-t border-rule pt-5"
         onSubmit={async (e) => {
@@ -246,6 +265,7 @@ function Ownership({ subId, isOwner, requestedOwner, pending }: { subId: bigint;
         <Button type="submit" variant="danger" disabled={pending}>Cancel subscription</Button>
         {pending && <p className="w-full text-sm text-muted">Wait for pending requests to be fulfilled before cancelling.</p>}
       </form>
+      )}
       <TxNote tx={tx} />
     </Panel>
   )
@@ -273,17 +293,20 @@ function History({ subId }: { subId: bigint }) {
   const byId = new Map((fulfilled.data ?? []).map((l) => [l.args.requestId, l]))
   const rows = [...(requested.data ?? [])].reverse().slice(0, 50)
   return (
-    <section className="mt-10">
-      <h2 className="mb-4 text-xl font-semibold">Requests</h2>
+    <section className="mt-16 border-t-4 border-ink pt-8">
+      <h2 className="mb-6 text-4xl font-bold">Requests</h2>
+      {rows.length > 0 && fulfilled.isError && (
+        <p className="alert mb-4" role="alert">Couldn’t read fulfilments from the Arc RPC, so some answers may show as missing. Retrying…</p>
+      )}
       {rows.length === 0 ? (
-        <p className={requested.isError ? 'text-fault' : 'text-muted'}>
+        <p className={requested.isError ? 'alert' : 'text-muted'} role={requested.isError ? 'alert' : undefined}>
           {requested.isError ? 'Couldn’t reach the Arc RPC. Retrying…' : requested.isLoading ? 'Reading requests…' : 'No requests yet.'}
         </p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[40rem] text-[0.95rem]">
-            <thead className="text-left text-sm text-muted">
-              <tr className="border-b border-rule">
+            <thead className="label text-left text-muted">
+              <tr className="border-b-2 border-ink">
                 <th className="py-2 pr-4 font-medium">Request</th>
                 <th className="py-2 pr-4 font-medium">Consumer</th>
                 <th className="py-2 pr-4 font-medium">Words</th>
@@ -297,7 +320,7 @@ function History({ subId }: { subId: bigint }) {
                 return (
                   <tr key={r.transactionHash + r.logIndex} className="border-b border-rule">
                     <td className="py-2.5 pr-4">
-                      <Link href={`/requests/${r.args.requestId}`} className="hex hover:text-lane">{short(r.args.requestId, 8, 6)}</Link>
+                      <Link href={`/requests/${r.args.requestId}`} className="hex underline-offset-4 hover:underline">{short(r.args.requestId, 8, 6)}</Link>
                     </td>
                     <td className="py-2.5 pr-4 hex">{short(r.args.sender)}</td>
                     <td className="py-2.5 pr-4">{r.args.numWords}</td>

@@ -35,8 +35,10 @@ export async function deploy(o: DeployOptions): Promise<Deployment & { chainId: 
   const fees = await withRetry('fees', () => arcFees(publicClient))
   log(`deploying to ${chain.name} (${chain.id}) from ${o.deployer.address}`)
 
-  // Every RPC step retries rate limits; sending and waiting are retried separately so a
-  // transaction is never sent twice.
+  // Every RPC step retries rate limits. Each send pins its nonce, so if a send actually went out
+  // (e.g. timed out on one RPC, then rate limited by the fallback) the retry is rejected as a
+  // duplicate instead of broadcasting a second transaction with the next nonce.
+  let nextNonce = await withRetry('nonce', () => publicClient.getTransactionCount({ address: o.deployer.address, blockTag: 'pending' }))
   const send = async (hash: Hex) => {
     const r = await withRetry(`receipt ${hash.slice(0, 10)}`, () => publicClient.waitForTransactionReceipt({ hash }))
     if (r.status !== 'success') throw new Error(`tx ${hash} reverted`)
@@ -44,13 +46,16 @@ export async function deploy(o: DeployOptions): Promise<Deployment & { chainId: 
   }
   const deployContract = async (name: string, args: unknown[] = []): Promise<Address> => {
     const { abi, bytecode } = artifact(name)
-    const hash = await withRetry(name, () => walletClient.deployContract({ abi, bytecode, args, chain, account: o.deployer, ...fees }))
+    const nonce = nextNonce++
+    const hash = await withRetry(name, () => walletClient.deployContract({ abi, bytecode, args, chain, account: o.deployer, nonce, ...fees }))
     const r = await send(hash)
     log(`  ${name} ${r.contractAddress}`)
     return r.contractAddress!
   }
-  const write = async (address: Address, abi: Abi, functionName: string, args: unknown[] = [], value?: bigint) =>
-    send(await withRetry(functionName, () => walletClient.writeContract({ address, abi, functionName, args, value, chain, account: o.deployer, ...fees })))
+  const write = async (address: Address, abi: Abi, functionName: string, args: unknown[] = [], value?: bigint) => {
+    const nonce = nextNonce++
+    return send(await withRetry(functionName, () => walletClient.writeContract({ address, abi, functionName, args, value, chain, account: o.deployer, nonce, ...fees })))
+  }
   const createSub = async (coordinator: Address) => {
     const r = await write(coordinator, arcVRFCoordinatorAbi, 'createSubscription')
     const [ev] = parseEventLogs({ abi: arcVRFCoordinatorAbi, logs: r.logs, eventName: 'SubscriptionCreated' })

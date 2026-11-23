@@ -34,7 +34,7 @@ Creates `.env` with three fresh keys and prints the deployer and node addresses.
 | `DEPLOYER_KEY` | deploy only | set by `make keys` | Deploys and owns the contracts. Remove from `.env` after step 4. |
 | `ALERT_WEBHOOK_URL` | no | off | Discord or Slack webhook for alerts. |
 | `MIN_BALANCE_USDC` | no | `1` | Alert when the node's gas balance drops below this. |
-| `WEB_PORT` | no | `3000` | Port for the website. |
+| `WEB_PORT` | no | `3000` | Port the website is published on. Change it, then run `make up`. |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | no | empty | Enables WalletConnect / mobile wallets ([cloud.reown.com](https://cloud.reown.com)). |
 | `NEXT_PUBLIC_ARC_TESTNET_RPC` | no | public RPC | RPC the dashboard uses in the browser. |
 | `COORDINATOR` | no | from deployment file | Override the coordinator address. |
@@ -79,21 +79,21 @@ Expected:
 {"node":"ok","lastPollAt":"…","head":"…","pending":0,"lastFulfilAt":null,"balanceUsdc":"1","lastError":null}
 ```
 
-The website is on port 3000. Open **Playground** and roll the dice: the answer arrives within a few seconds. Both services restart automatically after a crash or reboot.
+The website is on port `WEB_PORT` (default 3000). Open **Playground** and roll the dice: the answer arrives within a few seconds. Both services restart automatically after a crash or reboot.
 
 ## 6. HTTPS
 
 ```bash
-caddy reverse-proxy --from vrf.example.com --to :3000
+caddy reverse-proxy --from vrf.example.com --to :3000   # use your WEB_PORT
 ```
 
-Or any load balancer, nginx or Cloudflare Tunnel in front of port 3000. Point uptime monitors at `https://vrf.example.com/api/health`.
+Or any load balancer, nginx or Cloudflare Tunnel in front of port `WEB_PORT`. Point uptime monitors at `https://vrf.example.com/api/health`.
 
 ## What runs
 
 | Service | Copies | Has keys | Public |
 |---|---|---|---|
-| `web` | 1 or more | No | Port 3000 |
+| `web` | 1 or more | No | `WEB_PORT` (default 3000) |
 | `vrf-node` | **Exactly 1** | Proving + node keys | No port |
 
 Both come from one Docker image. The website never receives a key.

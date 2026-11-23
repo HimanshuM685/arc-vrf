@@ -30,13 +30,17 @@ const connectors = connectorsForWallets(
   { appName: 'Arc VRF', projectId: projectId ?? 'unset' },
 )
 
+const rpcOptions = { batch: { wait: 50 }, retryCount: 4, retryDelay: 500 } as const
+
 export const wagmiConfig = createConfig({
   chains: appChains as unknown as readonly [typeof arcTestnet],
   connectors,
   transports: {
-    [arcTestnet.id]: http(process.env.NEXT_PUBLIC_ARC_TESTNET_RPC),
-    [arcMainnet.id]: http(process.env.NEXT_PUBLIC_ARC_MAINNET_RPC),
-    [arcLocal.id]: http(process.env.NEXT_PUBLIC_LOCAL_RPC ?? 'http://127.0.0.1:8545'),
+    // batch: the dashboard's many small reads go out as one HTTP request per tick, which keeps
+    // public RPCs from rate limiting it. Set NEXT_PUBLIC_ARC_*_RPC to a dedicated RPC for production.
+    [arcTestnet.id]: http(process.env.NEXT_PUBLIC_ARC_TESTNET_RPC, rpcOptions),
+    [arcMainnet.id]: http(process.env.NEXT_PUBLIC_ARC_MAINNET_RPC, rpcOptions),
+    [arcLocal.id]: http(process.env.NEXT_PUBLIC_LOCAL_RPC ?? 'http://127.0.0.1:8545', rpcOptions),
   } as Record<typeof arcTestnet.id, Transport>,
   ssr: true,
 })

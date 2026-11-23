@@ -20,3 +20,4 @@ export type Deployment = {
 export function getDeployment(chainId: number): Deployment | undefined {
   return (deployments as Record<string, Deployment>)[String(chainId)]
 }
+export * from './rpc.ts'

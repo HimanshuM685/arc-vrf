@@ -1,5 +1,5 @@
 'use client'
-import { getDeployment, ARC_MIN_MAX_FEE_PER_GAS } from '@arc-vrf/sdk'
+import { getDeployment, isRateLimited, ARC_MIN_MAX_FEE_PER_GAS } from '@arc-vrf/sdk'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import type { Abi, AbiEvent, Address, Hex, Log, PublicClient } from 'viem'
@@ -71,6 +71,7 @@ export function useTx() {
 
   async function send(p: { address: Address; abi: Abi; functionName: string; args?: unknown[]; value?: bigint }) {
     if (!client || !address) return setState({ status: 'error', error: 'Connect a wallet first.' })
+    let sent: Hex | undefined
     try {
       setState({ status: 'signing' })
       const fees = await client.estimateFeesPerGas()
@@ -79,6 +80,7 @@ export function useTx() {
         maxFeePerGas: fees.maxFeePerGas > ARC_MIN_MAX_FEE_PER_GAS ? fees.maxFeePerGas : ARC_MIN_MAX_FEE_PER_GAS,
         maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
       } as never)
+      sent = hash
       setState({ status: 'pending', hash })
       const r = await client.waitForTransactionReceipt({ hash })
       if (r.status !== 'success') throw new Error('Transaction reverted on-chain.')
@@ -87,7 +89,15 @@ export function useTx() {
       return r
     } catch (e) {
       const err = e as { shortMessage?: string; message: string }
-      setState({ status: 'error', error: err.shortMessage ?? err.message.split('\n')[0] })
+      setState({
+        status: 'error',
+        hash: sent,
+        error: !isRateLimited(e)
+          ? (err.shortMessage ?? err.message.split('\n')[0])
+          : sent
+            ? 'Sent, but the Arc RPC is rate limiting status checks. Check the transaction, or refresh in a few seconds.'
+            : 'The Arc RPC is rate limiting requests right now. Nothing was sent; wait a few seconds and try again.',
+      })
     }
   }
   return { ...state, send, reset: () => setState({ status: 'idle' }) }

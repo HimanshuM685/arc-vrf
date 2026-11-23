@@ -1,4 +1,4 @@
-import { ARC_MIN_MAX_FEE_PER_GAS, chains } from '@arc-vrf/sdk'
+import { ARC_MIN_MAX_FEE_PER_GAS, chains, isRateLimited } from '@arc-vrf/sdk'
 import {
   createPublicClient,
   createWalletClient,
@@ -56,3 +56,20 @@ export async function arcFees(client: PublicClient) {
 }
 
 export const log = (...args: unknown[]) => console.log(new Date().toISOString(), ...args)
+
+export { isRateLimited }
+
+/** Retries `fn` with exponential backoff (1s, 2s, 4s…) while the RPC is rate limiting. Wrap the
+ * send and the receipt wait separately, so a retry never re-sends a transaction that went out. */
+export async function withRetry<T>(label: string, fn: () => Promise<T>, attempts = 7, baseMs = 1_000): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn()
+    } catch (e) {
+      if (i >= attempts || !isRateLimited(e)) throw e
+      const ms = baseMs * 2 ** (i - 1)
+      log(`${label}: RPC is rate limiting, retrying in ${ms / 1000}s (${i}/${attempts - 1})`)
+      await new Promise((r) => setTimeout(r, ms))
+    }
+  }
+}

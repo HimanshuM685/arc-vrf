@@ -8,7 +8,7 @@ import {
   type Deployment,
 } from '@arc-vrf/sdk'
 import { parseEventLogs, type Abi, type Account, type Address, type Hex } from 'viem'
-import { arcFees, connect, log } from './chain.ts'
+import { arcFees, connect, log, withRetry } from './chain.ts'
 import { keyHashOf } from './proof.ts'
 
 const contractsDir = new URL('../../contracts/', import.meta.url).pathname
@@ -31,31 +31,33 @@ export type DeployOptions = {
 }
 
 export async function deploy(o: DeployOptions): Promise<Deployment & { chainId: number }> {
-  const { chain, publicClient, walletClient } = await connect(o.rpcUrl, o.deployer)
-  const fees = await arcFees(publicClient)
+  const { chain, publicClient, walletClient } = await withRetry('connect', () => connect(o.rpcUrl, o.deployer))
+  const fees = await withRetry('fees', () => arcFees(publicClient))
   log(`deploying to ${chain.name} (${chain.id}) from ${o.deployer.address}`)
 
+  // Every RPC step retries rate limits; sending and waiting are retried separately so a
+  // transaction is never sent twice.
   const send = async (hash: Hex) => {
-    const r = await publicClient.waitForTransactionReceipt({ hash })
+    const r = await withRetry(`receipt ${hash.slice(0, 10)}`, () => publicClient.waitForTransactionReceipt({ hash }))
     if (r.status !== 'success') throw new Error(`tx ${hash} reverted`)
     return r
   }
   const deployContract = async (name: string, args: unknown[] = []): Promise<Address> => {
     const { abi, bytecode } = artifact(name)
-    const hash = await walletClient.deployContract({ abi, bytecode, args, chain, account: o.deployer, ...fees })
+    const hash = await withRetry(name, () => walletClient.deployContract({ abi, bytecode, args, chain, account: o.deployer, ...fees }))
     const r = await send(hash)
     log(`  ${name} ${r.contractAddress}`)
     return r.contractAddress!
   }
   const write = async (address: Address, abi: Abi, functionName: string, args: unknown[] = [], value?: bigint) =>
-    send(await walletClient.writeContract({ address, abi, functionName, args, value, chain, account: o.deployer, ...fees }))
+    send(await withRetry(functionName, () => walletClient.writeContract({ address, abi, functionName, args, value, chain, account: o.deployer, ...fees })))
   const createSub = async (coordinator: Address) => {
     const r = await write(coordinator, arcVRFCoordinatorAbi, 'createSubscription')
     const [ev] = parseEventLogs({ abi: arcVRFCoordinatorAbi, logs: r.logs, eventName: 'SubscriptionCreated' })
     return ev!.args.subId
   }
 
-  const deployBlock = Number(await publicClient.getBlockNumber())
+  const deployBlock = Number(await withRetry('blockNumber', () => publicClient.getBlockNumber()))
   const blockhashStore = await deployContract('BlockhashStore')
   const coordinator = await deployContract('ArcVRFCoordinator', [blockhashStore])
   // minConfirmations 0 (Arc finalises on inclusion), maxGasLimit 2.5M, gasAfterPaymentCalculation per Chainlink.

@@ -1,6 +1,5 @@
 import Link from 'next/link'
 import { Derivation } from '@/components/derivation'
-import { NetworkStatus } from '@/components/network-status'
 import { Rule, buttonClass } from '@/components/primitives'
 
 const facts = [
@@ -32,9 +31,9 @@ const ways = [
 ]
 
 /** Full-bleed band that escapes main's padding but keeps content on the page grid. */
-function Band({ className = '', children, label }: { className?: string; children: React.ReactNode; label: string }) {
+function Band({ className = '', children, label, id }: { className?: string; children: React.ReactNode; label: string; id?: string }) {
   return (
-    <section aria-label={label} className={`relative left-1/2 -ml-[50vw] w-screen ${className}`}>
+    <section id={id} aria-label={label} className={`relative left-1/2 -ml-[50vw] w-screen ${className}`}>
       <div className="mx-auto max-w-6xl px-4 sm:px-8 lg:px-12">{children}</div>
     </section>
   )
@@ -57,11 +56,11 @@ export default function Home() {
             are paid in USDC.
           </p>
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap xl:justify-end">
-            <Link href="/subscriptions" className={buttonClass('primary')}>
-              Create a subscription <span aria-hidden="true">→</span>
+            <Link href="/dashboard" className={buttonClass('primary')}>
+              Start building <span aria-hidden="true">→</span>
             </Link>
             <Link href="/docs" className={buttonClass('quiet')}>
-              Read the quick start
+              Read the docs
             </Link>
           </div>
         </div>
@@ -87,7 +86,7 @@ export default function Home() {
       </Band>
 
       {/* How it works */}
-      <Band label="How one number is made" className="tex-diag">
+      <Band id="how" label="How one number is made" className="tex-diag scroll-mt-4">
         <div className="grid gap-12 py-20 sm:py-28 lg:grid-cols-[0.8fr_1.2fr] lg:gap-16">
           <div className="lg:sticky lg:top-28 lg:self-start">
             <p className="label text-muted">How it works</p>
@@ -107,7 +106,7 @@ export default function Home() {
       </Band>
 
       {/* Two ways to pay */}
-      <section className="border-t-4 border-ink py-20 sm:py-28">
+      <section id="pricing" className="scroll-mt-4 border-t-4 border-ink py-20 sm:py-28">
         <p className="label text-muted">Pricing model</p>
         <h2 className="mt-4 text-5xl leading-none font-bold sm:text-6xl">Two ways to pay</h2>
         <p className="mt-5 max-w-[60ch] text-lg text-muted">
@@ -137,13 +136,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Live network */}
-      <section className="border-t-4 border-ink py-20 sm:py-28">
-        <p className="label text-muted">Live</p>
-        <h2 className="mt-4 mb-10 text-5xl leading-none font-bold sm:text-6xl">Network</h2>
-        <NetworkStatus />
-      </section>
-
       {/* Pull quote */}
       <section className="border-t-4 border-ink py-20 sm:py-28">
         <figure className="mx-auto max-w-4xl">
@@ -159,15 +151,15 @@ export default function Home() {
       </section>
 
       {/* Final call to action, inverted */}
-      <Band label="Get started" className="tex-vlines -mb-24 bg-ink text-paper">
+      <Band label="Get started" className="tex-vlines bg-ink text-paper">
         <div className="flex flex-col gap-10 py-20 sm:py-28 lg:flex-row lg:items-end lg:justify-between">
           <h2 className="max-w-[14ch] text-5xl leading-none font-bold sm:text-7xl">Add randomness to your contract.</h2>
           <div className="flex flex-col gap-3 sm:flex-row">
-            <Link href="/docs#subscription" className={buttonClass('inverse')}>
-              Quick start <span aria-hidden="true">→</span>
+            <Link href="/dashboard" className={buttonClass('inverse')}>
+              Get started <span aria-hidden="true">→</span>
             </Link>
-            <Link href="/subscriptions" className="label inline-flex min-h-11 items-center justify-center border-2 border-paper px-6 py-3 font-medium transition-colors duration-100 hover:bg-paper hover:text-ink focus-visible:outline-paper">
-              Create a subscription
+            <Link href="/docs#subscription" className="label inline-flex min-h-11 items-center justify-center border-2 border-paper px-6 py-3 font-medium transition-colors duration-100 hover:bg-paper hover:text-ink focus-visible:outline-paper">
+              Quick start
             </Link>
           </div>
         </div>

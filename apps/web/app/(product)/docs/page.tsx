@@ -276,7 +276,7 @@ echo 'arc-vrf/=lib/arc-vrf/contracts/src/' >> remappings.txt`}</code></pre>
           <summary>What it costs</summary>
           <p>
             <strong>Subscription:</strong> after each answer you pay for the gas it used, plus a premium. The current
-            premium is on the <a href="/">Overview</a> page.
+            premium is on the <a href="/dashboard">Dashboard</a>.
           </p>
           <pre><code>{`payment = gasPrice × (gasAfterPaymentCalculation + gasUsed) × (100 + premium%) / 100
         + flatFeePPM × 10¹²`}</code></pre>

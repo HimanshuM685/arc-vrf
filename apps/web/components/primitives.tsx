@@ -24,3 +24,13 @@ export function buttonClass(variant: Variant = 'primary') {
   return `label inline-flex min-h-11 items-center justify-center gap-2 border-2 px-6 py-3 text-center font-medium transition-colors duration-100 disabled:cursor-not-allowed disabled:opacity-40 ${styles}`
 }
 
+
+/** y² = x³ + 7 over the reals, with one marked point: the curve every proof lives on. */
+export function CurveMark() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21 3c-6 1-9 5-10 9s4 8 10 9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="square" />
+      <rect x="8.6" y="9.4" width="5.2" height="5.2" fill="currentColor" />
+    </svg>
+  )
+}

@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "@rainbow-me/rainbowkit/styles.css";
 
 /* Minimalist Monochrome in one hue: brand indigo #1E1F63, white, and indigo-tinted grays for secondary text and hairlines.
    Status tokens (verified / waiting / fault) all resolve to ink: state is shown by shape and words, not hue. */

@@ -44,7 +44,7 @@ function Wrapper({ explorer }: { explorer?: string }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-5 lg:grid-cols-[1.25fr_1fr]">
+      <div className="grid gap-5 xl:grid-cols-[1.25fr_1fr]">
         <Calculator cfg={cfg} />
         <Panel title="Wrapper" aside={disabledR?.status !== 'success' ? <Badge tone="muted">Reading…</Badge> : disabledR.result ? <Badge tone="fault">Disabled</Badge> : <Badge tone="verified">Accepting requests</Badge>}>
           <Fields
@@ -121,7 +121,7 @@ function Calculator({ cfg }: { cfg?: WrapperCfg }) {
         <Input label="Gas price (gwei)" inputMode="decimal" value={gasPriceStr} onChange={(e) => setPrice(e.target.value)} hint={price ? undefined : 'Live, floored at 20'} />
       </div>
       <div className="mt-10 flex flex-wrap items-baseline gap-x-4 gap-y-2">
-        <p className="font-display text-5xl font-bold tracking-tighter lining-nums tabular-nums break-all sm:text-6xl">{onchain.data !== undefined ? usdc(onchain.data, 8) : parts ? usdc(parts.total, 8) : '…'}</p>
+        <p className="font-display text-4xl font-bold tracking-tight lining-nums tabular-nums break-all">{onchain.data !== undefined ? usdc(onchain.data, 8) : parts ? usdc(parts.total, 8) : '…'}</p>
         <span className="label text-muted">USDC per request</span>
       </div>
       {tooMany && <p className="alert mt-3 text-sm" role="alert">The wrapper accepts at most {cfg![6]} words per request.</p>}

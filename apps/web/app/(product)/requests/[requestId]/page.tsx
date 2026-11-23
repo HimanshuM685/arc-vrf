@@ -61,7 +61,7 @@ export default function RequestPage() {
       <PageHead title="Request">
         <span className="hex break-all text-base text-ink">{requestId.toString()}</span>
       </PageHead>
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Asked" aside={<span>block {req.blockNumber.toLocaleString('en')}</span>}>
           <Fields
             rows={[

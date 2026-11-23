@@ -10,20 +10,19 @@ export { Rule, buttonClass }
 
 export function PageHead({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="pt-12 pb-10 sm:pt-16">
-      <h1 className="text-5xl leading-none font-bold tracking-tighter break-words sm:text-7xl">{title}</h1>
-      <Rule className="mt-6" />
-      {children && <div className="mt-6 max-w-[68ch] text-lg leading-relaxed text-muted">{children}</div>}
+    <div className="mb-6 border-b border-rule pb-5">
+      <h1 className="text-3xl leading-tight font-bold tracking-tight break-words sm:text-4xl">{title}</h1>
+      {children && <div className="mt-2 max-w-[70ch] leading-relaxed text-muted">{children}</div>}
     </div>
   )
 }
 
 export function Panel({ title, aside, children, className = '' }: { title?: string; aside?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`min-w-0 border border-ink bg-panel p-5 sm:p-8 ${className}`}>
+    <section className={`min-w-0 border border-ink bg-panel p-5 ${className}`}>
       {(title || aside) && (
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-rule pb-4">
-          {title && <h2 className="text-2xl font-bold">{title}</h2>}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-rule pb-3">
+          {title && <h2 className="text-xl font-bold">{title}</h2>}
           {aside && <div className="label text-muted">{aside}</div>}
         </div>
       )}
@@ -37,8 +36,8 @@ export function Fields({ rows }: { rows: [ReactNode, ReactNode][] }) {
     <dl className="grid grid-cols-1 gap-x-6 sm:grid-cols-[minmax(9rem,auto)_1fr]">
       {rows.map(([k, v], i) => (
         <div key={i} className="contents">
-          <dt className="label pt-3 text-muted sm:pb-3 sm:pt-[0.95rem]">{k}</dt>
-          <dd className="min-w-0 border-b border-rule pb-3 pt-1 sm:pt-3">{v}</dd>
+          <dt className="label pt-2.5 text-muted sm:pb-2.5 sm:pt-[0.8rem]">{k}</dt>
+          <dd className="min-w-0 border-b border-rule pb-2.5 pt-1 sm:pt-2.5">{v}</dd>
         </div>
       ))}
     </dl>
@@ -117,7 +116,7 @@ export function Addr({ value, explorer }: { value?: string; explorer?: string })
 export function NotDeployed({ chainName }: { chainName?: string }) {
   return (
     <Panel>
-      <p className="font-display text-2xl font-bold">Arc VRF isn’t deployed on {chainName ?? 'this network'} yet.</p>
+      <p className="font-display text-xl font-bold">Arc VRF isn’t deployed on {chainName ?? 'this network'} yet.</p>
       <p className="mt-3 text-muted">
         Switch your wallet to Arc Testnet, or deploy your own with{' '}
         <code className="hex bg-code px-1">pnpm --filter @arc-vrf/node deploy-contracts</code> and regenerate the SDK.
@@ -131,7 +130,7 @@ export function NeedsWallet({ children }: { children: ReactNode }) {
   if (isConnected) return <>{children}</>
   return (
     <Panel>
-      <p className="font-display text-2xl font-bold">Connect a wallet to manage subscriptions.</p>
+      <p className="font-display text-xl font-bold">Connect a wallet to manage subscriptions.</p>
       <p className="mt-3 max-w-[60ch] text-muted">
         Subscriptions are on-chain accounts owned by your address. The dashboard only sends the transactions.
       </p>

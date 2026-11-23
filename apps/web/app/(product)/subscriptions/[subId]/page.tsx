@@ -80,9 +80,9 @@ export default function SubscriptionPage() {
         </p>
       )}
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid gap-5 xl:grid-cols-2">
         <Panel title="Balance" aside={pending ? <Badge tone="waiting">Requests pending</Badge> : <Badge tone="muted">No pending requests</Badge>}>
-          <p className="font-display text-5xl font-bold tracking-tighter lining-nums tabular-nums break-all sm:text-6xl">
+          <p className="font-display text-4xl font-bold tracking-tight lining-nums tabular-nums break-all">
             {usdc(sub?.[1])} <span className="label font-normal tracking-widest text-muted">USDC</span>
           </p>
           <div className="mt-5">
@@ -287,8 +287,8 @@ function History({ subId }: { subId: bigint }) {
   const byId = new Map((fulfilled.data ?? []).map((l) => [l.args.requestId, l]))
   const rows = [...(requested.data ?? [])].reverse().slice(0, 50)
   return (
-    <section className="mt-16 border-t-4 border-ink pt-8">
-      <h2 className="mb-6 text-4xl font-bold">Requests</h2>
+    <section className="mt-10 border-t-2 border-ink pt-6">
+      <h2 className="mb-4 text-2xl font-bold">Requests</h2>
       {rows.length > 0 && fulfilled.isError && (
         <p className="alert mb-4" role="alert">Couldn’t read fulfilments from the Arc RPC, so some answers may show as missing. Retrying…</p>
       )}

@@ -15,8 +15,8 @@ export function SiteFooter({ compact = false }: { compact?: boolean }) {
   return (
     <footer className={compact ? 'border-t border-rule' : 'border-t-4 border-ink'}>
       <div
-        className={`mx-auto flex max-w-6xl flex-col gap-4 px-4 sm:px-8 md:flex-row md:justify-between lg:px-12 ${
-          compact ? 'py-4 md:items-center' : 'gap-6 py-10 md:items-start'
+        className={`flex flex-col gap-4 md:flex-row md:justify-between ${
+          compact ? 'max-w-6xl px-4 py-4 sm:px-6 md:items-center lg:px-8' : 'mx-auto max-w-6xl gap-6 px-4 py-10 sm:px-8 md:items-start lg:px-12'
         }`}
       >
         <div className="max-w-md">

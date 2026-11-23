@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import { REPO } from '@/lib/format'
-import { Rule } from '@/components/primitives'
 import { Addresses } from './addresses'
 
 export const metadata: Metadata = { title: 'Docs · Arc VRF' }
@@ -112,21 +111,19 @@ function Toc() {
 
 export default function DocsPage() {
   return (
-    <div className="grid gap-12 pt-12 sm:pt-16 lg:grid-cols-[14rem_1fr]">
-      <nav aria-label="On this page" className="hidden lg:block">
-        <div className="no-scrollbar sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto pb-8">
+    <div className="grid gap-10 xl:grid-cols-[minmax(0,1fr)_13rem]">
+      <nav aria-label="On this page" className="hidden xl:order-last xl:block">
+        <div className="no-scrollbar sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto pb-8">
           <Toc />
         </div>
       </nav>
       <article className="prose-doc min-w-0">
-        <p className="label text-muted">Documentation</p>
-        <h1 className="mt-4 text-5xl leading-none font-bold tracking-tighter sm:text-7xl">Docs</h1>
-        <Rule className="mt-6" />
-        <p className="text-xl text-muted">
+        <h1 className="text-3xl leading-tight font-bold tracking-tight sm:text-4xl">Docs</h1>
+        <p className="!mt-2 border-b border-rule pb-5 text-muted">
           Random numbers for your Arc contracts. Each number comes with a proof, and the chain checks that proof before
           your contract gets the number, so nobody can rig it. Not even us.
         </p>
-        <details className="group mt-8 border-2 border-ink lg:hidden">
+        <details className="group mt-6 border border-ink xl:hidden">
           <summary className="label flex min-h-11 cursor-pointer list-none items-center justify-between px-4 [&::-webkit-details-marker]:hidden">
             On this page
             <span aria-hidden="true" className="text-base group-open:rotate-45">+</span>

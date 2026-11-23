@@ -66,8 +66,6 @@ export function Addresses() {
               <ul className="!list-none !pl-0">
                 <Row label="BlockhashStore" hint="Old block hashes" value={d.blockhashStore} explorer={explorer} />
                 <Row label="Batch helper" hint="Many answers in one tx" value={d.batchCoordinator} explorer={explorer} />
-                <Row label="HiLoGame" hint="Sample, subscription" value={d.hiLoGame} explorer={explorer} />
-                <Row label="DiceDirect" hint="Sample, direct funding" value={d.diceDirect} explorer={explorer} />
               </ul>
             </details>
           </div>

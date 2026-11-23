@@ -47,7 +47,6 @@ Creates `.env` with three fresh keys and prints the deployer and node addresses.
 | `FLAT_FEE_PPM` | no | `0` | Flat fee per request, millionths of a USDC. Used by step 4. |
 | `MAX_GAS_PRICE_GWEI` | no | `500` | Highest gas price the node answers at. Used by step 4. |
 | `WRAPPER_FUNDING_USDC` | no | `1` | Starting balance of the wrapper's subscription. Used by step 4. |
-| `EXAMPLE_FUNDING_USDC` | no | `0.5` | Starting balance of the sample game. Used by step 4. |
 
 `NEXT_PUBLIC_*` values are built into the website: run `make up` again after changing them.
 
@@ -65,7 +64,7 @@ git push
 sed -i.bak '/^DEPLOYER_KEY=/d' .env && rm .env.bak
 ```
 
-Deploys the coordinator, wrapper, `BlockhashStore`, batch helper and two sample games, registers the proving key, sets fees, funds the subscriptions, and writes the addresses to `contracts/deployments/<chainId>.json`. The last line removes `DEPLOYER_KEY` so the running services never have it; keep a backup of it somewhere safe, it owns the contracts.
+Deploys the coordinator, wrapper, `BlockhashStore` and batch helper, registers the proving key, sets fees, funds the wrapper’s subscription, and writes the addresses to `contracts/deployments/<chainId>.json`. The last line removes `DEPLOYER_KEY` so the running services never have it; keep a backup of it somewhere safe, it owns the contracts.
 
 ## 5. Run
 
@@ -81,7 +80,7 @@ Expected:
 {"node":"ok","lastPollAt":"…","head":"…","pending":0,"lastFulfilAt":null,"balanceUsdc":"1","lastError":null}
 ```
 
-The website is on port `WEB_PORT` (default 3000). Open **Playground** and roll the dice: the answer arrives within a few seconds. Both services restart automatically after a crash or reboot.
+The website is on port `WEB_PORT` (default 3000). The **Network** panel on the Overview page should say “Reading live”. To test a real request, create a subscription, add your consumer contract, and request randomness: the answer arrives within a few seconds. Both services restart automatically after a crash or reboot.
 
 ## 6. HTTPS
 

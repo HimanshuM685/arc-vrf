@@ -11,9 +11,6 @@ export type Deployment = {
   wrapper: `0x${string}`
   wrapperSubId: string
   keyHash: `0x${string}`
-  hiLoGame: `0x${string}`
-  hiLoSubId: string
-  diceDirect: `0x${string}`
   deployBlock: number
 }
 

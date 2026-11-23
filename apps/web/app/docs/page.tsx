@@ -190,7 +190,6 @@ echo 'arc-vrf/=lib/arc-vrf/contracts/src/' >> remappings.txt`}</code></pre>
           and how the number was made, step by step, with the real values from the chain. Share the link with anyone who
           wants to check it was fair.
         </p>
-        <p>Want to see it working first? <a href="/playground">Playground</a> has two small games, one for each way to pay.</p>
 
         <h2 id="rules">Rules for safe randomness</h2>
         <ul>
@@ -231,10 +230,10 @@ echo 'arc-vrf/=lib/arc-vrf/contracts/src/' >> remappings.txt`}</code></pre>
         <details>
           <summary>A subscription with USDC I didn’t add shows up in my list</summary>
           <p>
-            If you deployed the contracts with this wallet, the deploy script made two subscriptions from it and funded
-            them: the <strong>direct-funding pool</strong> (1 USDC by default) and the <strong>Hi-Lo sample</strong> (0.5
-            USDC). The USDC came from your wallet at deploy time. Don’t cancel the pool: direct funding stops working
-            without it. Use a separate wallet for deploying to keep them out of your list.
+            If you deployed the contracts with this wallet, the deploy script made the <strong>direct-funding
+            pool</strong> from it and funded it (1 USDC by default). The USDC came from your wallet at deploy time. Don’t
+            cancel the pool: direct funding stops working without it. Use a separate wallet for deploying to keep it out
+            of your list.
           </p>
         </details>
         <details>

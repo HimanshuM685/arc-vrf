@@ -7,7 +7,6 @@ const links = [
   { href: '/', label: 'Overview' },
   { href: '/subscriptions', label: 'Subscriptions' },
   { href: '/direct-funding', label: 'Direct funding' },
-  { href: '/playground', label: 'Playground' },
   { href: '/docs', label: 'Docs' },
 ]
 

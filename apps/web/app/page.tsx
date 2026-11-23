@@ -166,8 +166,8 @@ export default function Home() {
             <Link href="/docs#subscription" className={buttonClass('inverse')}>
               Quick start <span aria-hidden="true">→</span>
             </Link>
-            <Link href="/playground" className="label inline-flex min-h-11 items-center justify-center border-2 border-paper px-6 py-3 font-medium transition-colors duration-100 hover:bg-paper hover:text-ink focus-visible:outline-paper">
-              Try the playground
+            <Link href="/subscriptions" className="label inline-flex min-h-11 items-center justify-center border-2 border-paper px-6 py-3 font-medium transition-colors duration-100 hover:bg-paper hover:text-ink focus-visible:outline-paper">
+              Create a subscription
             </Link>
           </div>
         </div>

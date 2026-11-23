@@ -13,7 +13,7 @@ import { keyHashOf } from './proof.ts'
 
 const contractsDir = new URL('../../contracts/', import.meta.url).pathname
 
-function artifact(name: string): { abi: Abi; bytecode: Hex } {
+export function artifact(name: string): { abi: Abi; bytecode: Hex } {
   const a = JSON.parse(readFileSync(`${contractsDir}out/${name}.sol/${name}.json`, 'utf8'))
   return { abi: a.abi, bytecode: a.bytecode.object }
 }
@@ -27,7 +27,6 @@ export type DeployOptions = {
   flatFeeNativePPM?: number
   wrapperPremiumPercentage?: number
   wrapperFunding?: bigint // USDC wei funded into the wrapper's subscription
-  exampleFunding?: bigint // USDC wei funded into the HiLoGame subscription
 }
 
 export async function deploy(o: DeployOptions): Promise<Deployment & { chainId: number }> {
@@ -82,13 +81,6 @@ export async function deploy(o: DeployOptions): Promise<Deployment & { chainId: 
   // Starting overheads from Chainlink's Base Sepolia wrapper; re-measure on Arc (milestone M2).
   await write(wrapper, arcVRFWrapperAbi, 'setConfig', [13_400, 128_500, 435, o.wrapperPremiumPercentage ?? 60, keyHash, 10, o.flatFeeNativePPM ?? 0])
 
-  // Samples: HiLoGame (subscription) and DiceDirect (direct funding).
-  const hiLoSubId = await createSub(coordinator)
-  await write(coordinator, arcVRFCoordinatorAbi, 'fundSubscriptionWithNative', [hiLoSubId], o.exampleFunding ?? 5n * 10n ** 17n)
-  const hiLoGame = await deployContract('HiLoGame', [coordinator, keyHash, hiLoSubId])
-  await write(coordinator, arcVRFCoordinatorAbi, 'addConsumer', [hiLoSubId, hiLoGame])
-  const diceDirect = await deployContract('DiceDirect', [wrapper])
-
   const d = {
     chainId: chain.id,
     blockhashStore,
@@ -97,9 +89,6 @@ export async function deploy(o: DeployOptions): Promise<Deployment & { chainId: 
     wrapper,
     wrapperSubId: wrapperSubId.toString(),
     keyHash,
-    hiLoGame,
-    hiLoSubId: hiLoSubId.toString(),
-    diceDirect,
     deployBlock,
   }
   mkdirSync(`${contractsDir}deployments`, { recursive: true })

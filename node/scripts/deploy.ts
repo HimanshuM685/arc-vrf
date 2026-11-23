@@ -23,6 +23,5 @@ await deploy({
   wrapperPremiumPercentage: Number(env.WRAPPER_PREMIUM_PCT ?? 60),
   flatFeeNativePPM: Number(env.FLAT_FEE_PPM ?? 0),
   wrapperFunding: parseEther(env.WRAPPER_FUNDING_USDC ?? '1'),
-  exampleFunding: parseEther(env.EXAMPLE_FUNDING_USDC ?? '0.5'),
 })
 await import('../../packages/sdk/scripts/gen.ts')

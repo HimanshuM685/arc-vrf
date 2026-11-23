@@ -13,7 +13,7 @@ Arc VRF is a port of Chainlink VRF v2.5. The contracts, proof format and request
 - **Verifiable.** ECVRF on secp256k1 (Chainlink's `VRF.sol`, unchanged). The dashboard shows every step of how each number was derived, with the real values.
 - **Old requests still work.** Block hashes come from `BLOCKHASH`, then Arc's EIP-2935 history contract (~8191 blocks), then a `BlockhashStore`.
 - **Built to run unattended.** Stateless node that never answers a request twice, retries failed answers with backoff, fails over between RPC endpoints, and sends alerts to Discord or Slack.
-- **Dashboard.** Manage subscriptions, price direct-funding requests, try two sample games, and trace any request.
+- **Dashboard.** Manage subscriptions, price direct-funding requests, and trace any request.
 
 ## Architecture
 
@@ -70,8 +70,6 @@ The full design (components, the two payment paths, how the node stays correct a
 | Key hash | `0xcf39e27191d1d13c8fec1a175eda831392ef974fe21a5a0a0680c3a22c6deb88` |
 | BlockhashStore | `0x57b28753a79edcea25f1790c971135a853ef82e2` |
 | Batch helper | `0x8861dcba2d13d6d0723c9b7e56a0d88758dc8273` |
-| HiLoGame sample | `0xdb7cc22d59c3d2590ac2528f252cdacb12eb6b2e` |
-| DiceDirect sample | `0x9c4ce3bc6469d1c5018b761e62b0bc4b42098dea` |
 
 Chain ID 5042002, RPC `https://rpc.testnet.arc.io`, gas paid in USDC. The source of truth is [`contracts/deployments/5042002.json`](contracts/deployments/5042002.json); the dashboard's Docs page always shows the current addresses.
 

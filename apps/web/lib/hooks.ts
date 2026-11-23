@@ -10,12 +10,11 @@ export function useDeployment() {
   return { chainId, deployment: getDeployment(chainId) }
 }
 
-/** Subscriptions the deploy script creates and funds from the deployer wallet: the wrapper's
- * pool (pays every direct-funding request) and the Hi-Lo sample game's. */
-export function systemSub(d: Deployment | undefined, id: bigint | undefined): 'wrapper' | 'hilo' | undefined {
+/** The subscription the deploy script creates and funds from the deployer wallet: the wrapper's
+ * pool, which pays every direct-funding request. */
+export function systemSub(d: Deployment | undefined, id: bigint | undefined): 'wrapper' | undefined {
   if (!d || id === undefined) return undefined
   if (id === BigInt(d.wrapperSubId)) return 'wrapper'
-  if (id === BigInt(d.hiLoSubId)) return 'hilo'
 }
 
 /** One getLogs call over [from, to]. Rate limited: wait (1s, 2s, 4s…) and retry the same range,

@@ -47,7 +47,7 @@ export function NetworkStatus() {
       </Panel>
       <Panel title="Recent fulfilments" aside={fulfilled.data ? `${fulfilled.data.length} total` : undefined}>
         {recent.length === 0 ? (
-          <p className="text-muted">No fulfilments yet. Try the <Link href="/playground" className="underline underline-offset-4">playground</Link>.</p>
+          <p className="text-muted">No fulfilments yet. Follow the <Link href="/docs#subscription" className="underline underline-offset-4">quick start</Link> to make the first request.</p>
         ) : (
           <ul className="divide-y divide-rule border-t border-rule">
             {recent.map((l) => (

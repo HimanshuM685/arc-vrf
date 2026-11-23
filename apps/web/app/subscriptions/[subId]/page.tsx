@@ -74,15 +74,9 @@ export default function SubscriptionPage() {
 
       {systemSub(d, subId) === 'wrapper' && (
         <p className="alert mb-6 max-w-[70ch]">
-          This is the direct-funding pool. It pays for every request made through the wrapper, including the Dice game.
+          This is the direct-funding pool. It pays for every request made through the wrapper.
           The deploy script created it and funded it with USDC from the deployer wallet. Cancelling it would stop direct
           funding for everyone, so cancelling is turned off here. Top it up when it runs low.
-        </p>
-      )}
-      {systemSub(d, subId) === 'hilo' && (
-        <p className="alert mb-6 max-w-[70ch]">
-          This subscription pays for the Hi-Lo game on Playground. The deploy script created it and funded it with USDC
-          from the deployer wallet.
         </p>
       )}
 

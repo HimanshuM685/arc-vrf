@@ -86,7 +86,6 @@ function MySubscriptions() {
                       <span className="text-muted">{consumers.length} consumer{consumers.length === 1 ? '' : 's'}</span>
                       <span className="text-muted">{reqs.toString()} fulfilled</span>
                       {systemSub(d, id) === 'wrapper' && <Badge tone="verified">Direct-funding pool</Badge>}
-                      {systemSub(d, id) === 'hilo' && <Badge tone="verified">Playground sample</Badge>}
                       {bal === 0n && <Badge tone="waiting">Needs funding</Badge>}
                     </span>
                   </Link>
@@ -97,8 +96,8 @@ function MySubscriptions() {
         )}
         {mine.some(({ id }) => systemSub(d, id)) && (
           <p className="mt-4 text-sm text-muted">
-            Marked subscriptions were created and funded by the deploy script, from this wallet (the deployer). The USDC
-            in them came from this wallet when the contracts were deployed.
+            The direct-funding pool was created and funded by the deploy script, from this wallet (the deployer). The
+            USDC in it came from this wallet when the contracts were deployed.
           </p>
         )}
       </Panel>

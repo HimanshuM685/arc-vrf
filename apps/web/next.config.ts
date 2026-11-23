@@ -7,5 +7,7 @@ const config: NextConfig = {
   outputFileTracingRoot: fileURLToPath(new URL('../../', import.meta.url)),
   transpilePackages: ['@arc-vrf/sdk'],
   turbopack: { resolveAlias: { '@base-org/account': './lib/no-base-account.ts' } },
+  // The Playground was removed; send old links home instead of to a 404.
+  redirects: async () => [{ source: '/playground', destination: '/', permanent: true }],
 }
 export default config

@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { REPO } from '@/lib/format'
+import { MenuLink } from './menu-link'
 import { CurveMark, buttonClass } from './primitives'
 
 const links = [
@@ -34,7 +35,7 @@ export function SiteHeader() {
           <span className="sm:hidden">Open app</span>
           <span aria-hidden="true">→</span>
         </Link>
-        {/* Phones: the same links in a native disclosure, no JavaScript. */}
+        {/* Phones: the same links in a native disclosure; MenuLink only closes it after a tap. */}
         <details className="group relative md:hidden">
           <summary className="label flex min-h-11 min-w-11 cursor-pointer list-none items-center justify-center border-2 border-ink [&::-webkit-details-marker]:hidden" aria-label="Menu">
             <span aria-hidden="true" className="group-open:hidden">☰</span>
@@ -42,9 +43,9 @@ export function SiteHeader() {
           </summary>
           <nav aria-label="Site" className="absolute right-0 z-40 mt-2 flex w-56 flex-col border-2 border-ink bg-paper p-2">
             {links.map((l) => (
-              <Link key={l.href} href={l.href} className={`${linkClass} px-3`}>
+              <MenuLink key={l.href} href={l.href} className={`${linkClass} px-3`}>
                 {l.label}
-              </Link>
+              </MenuLink>
             ))}
             <a href={REPO} target="_blank" rel="noreferrer" className={`${linkClass} px-3`}>
               GitHub ↗

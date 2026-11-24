@@ -80,7 +80,7 @@ Expected:
 {"node":"ok","lastPollAt":"…","head":"…","pending":0,"lastFulfilAt":null,"balanceUsdc":"1","lastError":null}
 ```
 
-`make health` is the node check: `"node":"ok"` with a `lastPollAt` a few seconds old means it is watching the chain. Run it again after a minute; if `lastPollAt` hasn't moved, check `make logs`. The dashboard's “Reading live” badge (Overview page, **Live on …** panel) only shows that your browser reaches a public RPC, not that the node works.
+`make health` is the node check: `"node":"ok"` with a `lastPollAt` a few seconds old means it is watching the chain. Run it again after a minute; if `lastPollAt` hasn't moved, check `make logs`. The dashboard's “Live” badge next to **Network** on `/dashboard` only shows that your browser reaches a public RPC, not that the node works.
 
 The website is on port `WEB_PORT` (default 3000). To test a real request end to end, create a subscription, add your consumer contract, and request randomness: `lastFulfilAt` in `make health` updates and the answer arrives within a few seconds. Both services restart automatically after a crash or reboot.
 

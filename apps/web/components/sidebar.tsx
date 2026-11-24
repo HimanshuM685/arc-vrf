@@ -142,6 +142,14 @@ export function MobileNav() {
   const path = usePathname()
   const close = () => ref.current?.close()
   useEffect(close, [path])
+  // The sheet is CSS-hidden at lg, but a modal <dialog> keeps the page inert while open: close it when the
+  // viewport grows past lg (e.g. a tablet rotated to landscape).
+  useEffect(() => {
+    const lg = window.matchMedia('(min-width: 1024px)')
+    const onChange = () => lg.matches && close()
+    lg.addEventListener('change', onChange)
+    return () => lg.removeEventListener('change', onChange)
+  }, [])
   return (
     <>
       <button

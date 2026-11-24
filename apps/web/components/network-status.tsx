@@ -100,7 +100,7 @@ export function RecentFulfilments({ limit = 8 }: { limit?: number }) {
             </thead>
             <tbody>
               {recent.map((l) => (
-                <tr key={l.transactionHash} className={table.row}>
+                <tr key={`${l.transactionHash}-${l.logIndex}`} className={table.row}>
                   <td className={table.td}>
                     <Link href={`/requests/${l.args.requestId}`} className="hex text-accent hover:underline">
                       {short(l.args.requestId, 8, 6)}

@@ -38,6 +38,8 @@ export default function RequestPage() {
   if (!d) return <NotDeployed chainName={chain?.name} />
   if (requestId === undefined) return <PageHead title="Not a request ID" />
   if (requested.isLoading) return <PageHead title="Request">Reading the chain…</PageHead>
+  // A failed scan isn't proof the request doesn't exist: say the RPC failed, not "not found".
+  if (!req && requested.isError) return <PageHead title="Request">Couldn’t reach the Arc RPC. Retrying…</PageHead>
   if (!req) return <PageHead title="Request not found">No request with this ID on {chain?.name}.</PageHead>
 
   const seed = BigInt(keccak256(encodePacked(['uint256', 'bytes32'], [req.args.preSeed!, req.blockHash])))

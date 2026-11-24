@@ -9,7 +9,10 @@ export function MenuLink(props: ComponentProps<typeof Link>) {
     <Link
       {...props}
       onClick={(e) => {
-        e.currentTarget.closest('details')?.removeAttribute('open')
+        const menu = e.currentTarget.closest('details')
+        menu?.removeAttribute('open')
+        // The focused link is now hidden: hand focus back to the menu button so Tab starts from a visible spot.
+        menu?.querySelector('summary')?.focus()
         props.onClick?.(e)
       }}
     />

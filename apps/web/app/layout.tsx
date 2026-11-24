@@ -1,11 +1,7 @@
 import type { Metadata, Viewport } from 'next'
-import { JetBrains_Mono, Playfair_Display, Source_Serif_4 } from 'next/font/google'
+import { JetBrains_Mono } from 'next/font/google'
 import './globals.css'
 
-// The editorial faces are landing-page only (the dashboard remaps them to the system font), so they aren't
-// preloaded: browsers then fetch them only on pages that actually render them.
-const display = Playfair_Display({ subsets: ['latin'], style: ['normal', 'italic'], display: 'swap', variable: '--font-playfair', preload: false })
-const serif = Source_Serif_4({ subsets: ['latin'], display: 'swap', variable: '--font-source-serif', preload: false })
 const mono = JetBrains_Mono({ subsets: ['latin'], display: 'swap', variable: '--font-jetbrains' })
 
 export const metadata: Metadata = {
@@ -22,7 +18,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${serif.variable} ${mono.variable}`}>
+    <html lang="en" className={mono.variable}>
       <body className="min-h-screen font-sans antialiased">
         <a
           href="#main"

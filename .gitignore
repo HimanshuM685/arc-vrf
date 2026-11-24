@@ -12,3 +12,4 @@ contracts/broadcast
 *.tsbuildinfo
 node/dist
 contracts/deployments/31337.json
+graphify-out

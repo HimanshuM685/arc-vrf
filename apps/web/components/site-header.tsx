@@ -11,7 +11,8 @@ const links = [
 
 const linkClass = 'label inline-flex min-h-11 items-center whitespace-nowrap underline-offset-4 hover:underline'
 
-/** Marketing header: no wallet, no product tabs. One call to action into the dashboard. Server component, no JS. */
+/** Marketing header: no wallet, no product tabs. One call to action into the dashboard. Server component;
+ * only MenuLink (closes the phone menu after a tap) runs on the client. */
 export function SiteHeader() {
   return (
     <header className="border-b border-rule">

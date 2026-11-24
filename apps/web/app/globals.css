@@ -60,6 +60,9 @@
 html { background: var(--paper); color: var(--ink); color-scheme: light dark; }
 body { background: var(--paper); color: var(--ink); overflow-x: clip; }
 h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.025em; }
+/* Marketing routes load the editorial fonts on their own wrapper (app/(marketing)/layout.tsx). Re-declare the
+   theme fonts there so var(--font-display) resolves against the wrapper's font variables, not the root's. */
+.marketing { --font-display: var(--font-playfair), Georgia, serif; --font-sans: var(--font-source-serif), Georgia, serif; }
 :focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 ::selection { background: var(--ink); color: var(--paper); }
 input::placeholder { color: var(--muted); font-style: italic; }

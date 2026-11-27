@@ -66,6 +66,19 @@ export { isRateLimited, parseRpcUrls }
 export const withRetry = <T>(label: string, fn: () => Promise<T>, attempts = 7, baseMs = 1_000): Promise<T> =>
   retryRateLimited(fn, attempts, baseMs, (ms, i) => log(`${label}: RPC is rate limiting, retrying in ${ms / 1000}s (${i}/${attempts - 1})`))
 
+/** The eth_getLogs block range the provider says it allows, when it refused a wider one
+ * (Alchemy Free tier: "up to a 10 block range ... this block range should work: [0xA, 0xB]"). */
+export function blockRangeLimit(e: unknown): bigint | undefined {
+  let text = ''
+  for (let x = e as { message?: string; shortMessage?: string; details?: string; cause?: unknown } | undefined, i = 0; x && i < 10; x = x.cause as typeof x, i++)
+    text += ` ${x.message ?? ''} ${x.shortMessage ?? ''} ${x.details ?? ''}`
+  if (!/block range/i.test(text)) return undefined
+  const upTo = text.match(/up to (?:a )?(\d+)[ -]block range/i)
+  if (upTo) return BigInt(upTo[1]!)
+  const ok = text.match(/\[(0x[0-9a-f]+),\s*(0x[0-9a-f]+)\]/i)
+  return ok ? BigInt(ok[2]!) - BigInt(ok[1]!) + 1n : undefined
+}
+
 /** One-line error text for logs and alerts: viem's summary plus the provider's own message
  * (`details`), which viem keeps off the first line. URLs are masked: they can hold API keys. */
 export function errMsg(e: unknown): string {

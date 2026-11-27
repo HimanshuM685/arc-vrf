@@ -6,7 +6,7 @@
 import { arcVRFCoordinatorAbi } from '@arc-vrf/sdk'
 import { formatUnits, type Account, type Address, type Hex } from 'viem'
 import { alert, resetAlert } from './alert.ts'
-import { arcFees, connect, defaultWsUrl, errMsg, isRateLimited, log, wsClient } from './chain.ts'
+import { arcFees, blockRangeLimit, connect, defaultWsUrl, errMsg, isRateLimited, log, wsClient } from './chain.ts'
 import { finalSeed, generateProof, keyHashOf, publicKey } from './proof.ts'
 
 export type OracleOptions = {
@@ -66,7 +66,7 @@ export async function runOracle(o: OracleOptions) {
   log(`node up on ${chain.name}: coordinator ${o.coordinator}, keyHash ${keyHash}, sender ${o.txAccount.address}`)
 
   const pollMs = o.pollMs ?? 500
-  const range = o.maxBlockRange ?? 2_000n
+  let range = o.maxBlockRange ?? 2_000n // shrinks if the RPC refuses it (Alchemy Free tier: 10)
   let from = o.startBlock ?? (await publicClient.getBlockNumber())
   const pending = new Map<bigint, Pending>()
   const OUTAGE_MS = Math.max(60_000, 3 * pollMs)
@@ -213,6 +213,13 @@ export async function runOracle(o: OracleOptions) {
         }
       }
     } catch (e) {
+      const lim = blockRangeLimit(e)
+      if (lim && lim > 0n && lim < range) {
+        // Only ever shrinks, so this can't loop. Rescan at once: not a failure.
+        range = lim
+        log(`RPC limits eth_getLogs to ${lim} blocks (Alchemy Free tier?); scanning in ${lim}-block ranges. Pay As You Go allows far wider ranges at lower cost.`)
+        continue
+      }
       const msg = `${step}: ${errMsg(e)}`
       scanFails++
       if (status) status.lastError = msg

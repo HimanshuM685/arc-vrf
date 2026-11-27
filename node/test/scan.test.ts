@@ -1,6 +1,6 @@
 import { RpcRequestError } from 'viem'
 import { describe, expect, it } from 'vitest'
-import { errMsg } from '../src/chain.ts'
+import { blockRangeLimit, errMsg } from '../src/chain.ts'
 import { SCAN_LAG, readNearHead } from '../src/oracle.ts'
 
 describe('errMsg', () => {
@@ -40,5 +40,27 @@ describe('readNearHead', () => {
   it('still throws rate limits and failures in older ranges', async () => {
     await expect(readNearHead(async () => { throw new Error('429 Too Many Requests') }, 900n, 1_000n, head)).rejects.toThrow('429')
     await expect(readNearHead(async () => { throw new Error('boom') }, 100n, 500n, head)).rejects.toThrow('boom')
+  })
+})
+
+describe('blockRangeLimit', () => {
+  const rpcErr = (message: string, code = -32600) =>
+    new RpcRequestError({ body: { method: 'eth_getLogs' }, url: 'https://arc-testnet.g.alchemy.com/v2/KEY', error: { code, message } })
+
+  it('reads the Alchemy Free-tier limit', () => {
+    const e = rpcErr(
+      'Under the Free tier plan, you can make eth_getLogs requests with up to a 10 block range. Based on your parameters, this block range should work: [0x4671107, 0x4671110]. Upgrade to PAYG for expanded block range.',
+    )
+    expect(blockRangeLimit(e)).toBe(10n)
+  })
+
+  it('falls back to the suggested range', () => {
+    expect(blockRangeLimit(rpcErr('block range too wide, this block range should work: [0x10, 0x14]'))).toBe(5n)
+  })
+
+  it('ignores other errors', () => {
+    expect(blockRangeLimit(rpcErr('One of the blocks specified in filter cannot be found.'))).toBeUndefined()
+    expect(blockRangeLimit(rpcErr('Your app has exceeded its compute units per second capacity', 429))).toBeUndefined()
+    expect(blockRangeLimit(new Error('fetch failed'))).toBeUndefined()
   })
 })

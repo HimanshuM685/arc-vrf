@@ -179,6 +179,7 @@ On testnet, redeploying with a fresh `.env` is simpler.
 | `make up` fails with `set VRF_PROVING_KEY in .env` | `.env` is missing or a required key is empty. |
 | Node logs `missing env …` or a key error and exits | A key is malformed. Config errors stop the node at once instead of retrying. |
 | Node logs `keyHash … is not registered` and keeps restarting | The deployment used a different proving key, or `COORDINATOR` points elsewhere. Redeploy, or register the key. |
+| Alert or log: `safety scan failing … Free tier … up to a 10 block range` | The node's Alchemy app is on the Free tier, which allows eth_getLogs over only 10 blocks. The node notices and keeps scanning in 10-block ranges, but that costs ~45M CU/month at `POLL_MS=30000`, more than the Free tier's allowance. Put the app on Pay As You Go (or point `RPC_URL` at a PAYG app), then `make up`. To stay on Free tier for now, raise `POLL_MS` to `120000`. |
 | `make health` shows `"node":"stale"` | The node can't reach Alchemy. Check `make logs`, then the key in `RPC_URL`, your plan and its compute-unit usage in the Alchemy dashboard. |
 | Requests stay "Waiting for proof" | Check the node log for `fulfil … failed`. Common causes: the subscription balance is too low (fund it; the node retries automatically), the node is out of gas (top up), or Arc's gas price is above `MAX_GAS_PRICE_GWEI`. |
 | Dashboard says "Arc VRF isn't deployed on … yet" | The image was built before the deployment file existed. Commit it and run `make update`. |

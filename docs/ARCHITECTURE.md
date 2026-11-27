@@ -61,14 +61,15 @@ Fulfilment needs the hash of the request's block. The coordinator looks in three
 
 The node (`node/src/oracle.ts`) is a single loop:
 
-- **Poll.** Every `POLL_MS` (500 ms), read `RandomWordsRequested` logs for its key hash in ranges of up to 2,000 blocks from the last processed block. On startup it begins at the deployment block (or `START_BLOCK`).
+- **Push.** A WebSocket `eth_subscribe` to `RandomWordsRequested` for its key hash (`RPC_WS_URL`, default `RPC_URL` with `http` → `ws`). Each event joins the pending set and wakes the loop at once. A dropped socket is resubscribed with backoff and never stops the node.
+- **Safety scan.** Every `POLL_MS` (30 s; 500 ms in the e2e test), read `RandomWordsRequested` logs for its key hash in ranges of up to 2,000 blocks from the last scanned block, so nothing the socket missed is lost. On startup it begins at the deployment block (or `START_BLOCK`). While a request waits on confirmations or a retry, the loop wakes every second instead.
 - **Pending set.** Requests are kept in memory. Before answering, the node checks `s_requestCommitments(requestId)`: non-zero means still pending. This is the only source of truth, so the node has no database, and a restart re-scans logs and safely picks up exactly the unanswered requests. A request is never answered twice.
 - **Answer.** Generate the proof, send `fulfillRandomWords`, wait for the receipt.
 - **Retry.** A failed answer (RPC error, subscription underfunded, gas price above the lane's cap) is retried with exponential backoff from 1 s to 60 s, without limit. After the fifth failure it sends an alert.
-- **Watchdog.** A separate timer raises an alert if no poll has succeeded for 60 s. This matters because a stalled RPC can hang calls instead of failing them. A recovery alert follows when polling resumes.
-- **Balance check.** Alerts when the transaction key's balance drops below `MIN_BALANCE_USDC`.
+- **Watchdog.** A separate timer raises an alert if no scan has succeeded for 60 s (or three `POLL_MS`, if longer). This matters because a stalled RPC can hang calls instead of failing them. A recovery alert follows when polling resumes.
+- **Balance check.** Every 10 minutes, alerts when the transaction key's balance drops below `MIN_BALANCE_USDC`.
 - **Supervisor.** `node/src/start.ts` validates the configuration up front (bad keys fail immediately), then restarts the loop 5 s after any crash, alerting each time.
-- **Health.** `GET 127.0.0.1:8080` returns JSON: `node` (`ok` or `stale`, stale after 30 s without a poll), last poll time, chain head, pending count, last fulfilment, gas balance, last error. It answers 503 when stale. Docker's healthcheck uses it.
+- **Health.** `GET 127.0.0.1:8080` returns JSON: `node` (`ok` or `stale`, stale after three `POLL_MS` without a scan, at least 30 s), last poll time, chain head, pending count, last fulfilment, gas balance, last error. It answers 503 when stale. Docker's healthcheck uses it.
 - **RPC.** Alchemy only (`RPC_URL`), no public RPCs. Rate limits (HTTP 429) back off and retry. `RPC_URL` may list several URLs (e.g. two Alchemy apps); viem's fallback transport prefers the first. The dashboard reaches Alchemy through its own server-side `/api/rpc` proxy, so the key stays off the browser.
 - **Alerts** go to a Discord or Slack webhook (`node/src/alert.ts`). Each alert kind is sent at most once every 30 minutes, so a long outage produces one message.
 

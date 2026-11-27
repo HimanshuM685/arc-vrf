@@ -31,7 +31,7 @@ export default function SubscriptionPage() {
       { ...coord, functionName: 's_provingKeys', args: [d?.keyHash ?? '0x'] },
       { ...coord, functionName: 's_pendingRefunds', args: [address ?? '0x0000000000000000000000000000000000000000'] },
     ],
-    query: { enabled: !!d && subId !== undefined, refetchInterval: 5000 },
+    query: { enabled: !!d && subId !== undefined, refetchInterval: 15_000 },
   })
 
   if (!d) return <NotDeployed chainName={chain?.name} />

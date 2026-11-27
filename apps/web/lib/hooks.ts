@@ -35,9 +35,10 @@ async function getLogsRange<E extends AbiEvent>(
   }
 }
 
-// Alchemy Pay As You Go allows 10,000-block getLogs ranges. A wider chunk would fail and split every time,
-// and each failed call still costs compute units.
-const LOG_CHUNK = 10_000n
+// Arc testnet/mainnet logs are answered by the /api/rpc proxy from its in-memory index (any range, no
+// Alchemy call per request), and local anvil has no range limit, so one request usually covers everything.
+// getLogsRange still splits if an RPC refuses the range.
+const LOG_CHUNK = 1_000_000n
 // getBlockNumber and getLogs may be answered by different backend nodes behind the RPC, and one
 // may be a few blocks behind. The newest blocks are re-read every poll and only cached once older
 // than this, so a lagging provider can't make the cache skip their logs.
@@ -52,14 +53,18 @@ const logCache = new Map<string, { to: bigint; logs: Log[] }>()
 export function useLogs<E extends AbiEvent>(
   key: unknown[],
   params: { address?: Address; event: E; args?: Record<string, unknown>; fromBlock?: number },
-  opts: { refetchMs?: number; enabled?: boolean } = {},
+  /** refetchMs: poll interval, false to stop, or a function of the current logs (e.g. stop once found). */
+  opts: { refetchMs?: number | false | ((logs: Log<bigint, number, false, E>[] | undefined) => number | false); enabled?: boolean } = {},
 ) {
   const client = usePublicClient()
   const queryKey = ['logs', client?.chain.id, params.address, params.fromBlock, ...key]
   return useQuery({
     queryKey,
     enabled: !!client && !!params.address && opts.enabled !== false,
-    refetchInterval: opts.refetchMs ?? 4000,
+    refetchInterval:
+      typeof opts.refetchMs === 'function'
+        ? (q) => (opts.refetchMs as (l: Log<bigint, number, false, E>[] | undefined) => number | false)(q.state.data)
+        : (opts.refetchMs ?? 10_000),
     retry: 1, // getLogsRange already retries rate limits; more layers only multiply requests
     queryFn: async () => {
       const c = client as PublicClient

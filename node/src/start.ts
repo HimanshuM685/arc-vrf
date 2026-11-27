@@ -41,6 +41,7 @@ async function startOnce(
 
   await runOracle({
     rpcUrl,
+    wsUrl: process.env.RPC_WS_URL || undefined, // empty (docker-compose default) = derive from RPC_URL
     chainId,
     coordinator,
     provingKey: keys.provingKey,
@@ -50,7 +51,7 @@ async function startOnce(
       : deployment
         ? BigInt(deployment.deployBlock)
         : undefined,
-    pollMs: Number(process.env.POLL_MS ?? 2_000),
+    pollMs: pollMs(),
     minBalanceWei: parseEther(process.env.MIN_BALANCE_USDC ?? '1'),
     signal,
     status,
@@ -75,7 +76,10 @@ export async function startFromEnv(signal?: AbortSignal) {
   }
 }
 
-const STALE_MS = 30_000
+// Requests arrive over WebSocket; POLL_MS is only the safety scan, so the default is slow.
+const pollMs = () => Number(process.env.POLL_MS || 30_000)
+// lastPollAt moves on every scan (and WS event), so allow three missed scans before "stale".
+const STALE_MS = Math.max(30_000, 3 * pollMs())
 
 /** GET anything -> node status JSON; 503 when the node hasn't polled recently. No secrets.
  * Bound to loopback: the only client is the container's own HEALTHCHECK. A listen failure

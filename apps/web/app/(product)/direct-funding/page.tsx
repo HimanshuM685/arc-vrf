@@ -35,9 +35,9 @@ function Wrapper({ explorer }: { explorer?: string }) {
       { ...w, functionName: 's_disabled' },
       { address: d!.coordinator, abi: arcVRFCoordinatorAbi, functionName: 'getSubscription', args: [BigInt(d!.wrapperSubId)] },
     ],
-    query: { refetchInterval: 6000 },
+    query: { refetchInterval: 30_000 },
   })
-  const fees = useBalance({ address: d!.wrapper, query: { refetchInterval: 6000 } })
+  const fees = useBalance({ address: d!.wrapper, query: { refetchInterval: 30_000 } })
   const [cfgR, ownerR, disabledR, subR] = reads.data ?? []
   const cfg = cfgR?.result as WrapperCfg | undefined
   const sub = subR?.result as readonly [bigint, bigint, bigint, Address, readonly Address[]] | undefined
@@ -79,7 +79,7 @@ function Wrapper({ explorer }: { explorer?: string }) {
 
 function Calculator({ cfg }: { cfg?: WrapperCfg }) {
   const { deployment: d } = useDeployment()
-  const live = useGasPrice({ query: { refetchInterval: 10000 } })
+  const live = useGasPrice({ query: { refetchInterval: 30_000 } })
   const [gas, setGas] = useState('100000')
   const [words, setWords] = useState('1')
   const [price, setPrice] = useState('')

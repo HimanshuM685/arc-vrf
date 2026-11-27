@@ -41,7 +41,7 @@ function MySubscriptions() {
   ]
   const subs = useReadContracts({
     contracts: ids.map((id) => ({ address: d!.coordinator, abi: arcVRFCoordinatorAbi, functionName: 'getSubscription', args: [id] }) as const),
-    query: { refetchInterval: 6000, placeholderData: keepPreviousData },
+    query: { refetchInterval: 15_000, placeholderData: keepPreviousData },
   })
   const rows = ids.map((id, i) => ({ id, r: subs.data?.[i] }))
   const mine = rows.filter((s) => s.r?.status === 'success' && (s.r.result as readonly unknown[])[3] === address)

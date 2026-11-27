@@ -32,7 +32,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ chainId
   if (!proxy) {
     const d = getDeployment(chainId)
     const allowed = d ? [d.coordinator, d.wrapper, d.blockhashStore, d.batchCoordinator] : []
-    proxy = createRpcProxy({ upstream, allowed })
+    proxy = createRpcProxy({ upstream, allowed, startBlock: d?.deployBlock ?? 0 })
     proxies.set(key, proxy)
   }
 

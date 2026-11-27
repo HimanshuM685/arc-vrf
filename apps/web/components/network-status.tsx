@@ -20,7 +20,7 @@ export function NetworkStatus() {
       { ...coord, functionName: 's_currentSubNonce' },
       { ...coord, functionName: 'withdrawableNative' },
     ],
-    query: { enabled: !!d, refetchInterval: 8000 },
+    query: { enabled: !!d, refetchInterval: 60_000 }, // config and key list rarely change
   })
 
   if (!d) return <NotDeployed chainName={chain?.name} />

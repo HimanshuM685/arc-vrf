@@ -1,6 +1,8 @@
 // Local end-to-end: anvil -> deploy -> node -> HiLoGame (subscription) + DiceDirect (direct funding).
 // Usage: pnpm e2e   (needs `forge build` first; ANVIL=/path/to/anvil to override the binary)
 // Leave the chain running for the dashboard with KEEP=1.
+// RPC_WS_URL=ws://127.0.0.1:9 (a dead port) proves requests are still answered by the polling scan;
+// POLL_MS=30000 proves the WebSocket push answers them without the scan.
 import { spawn } from 'node:child_process'
 import { homedir } from 'node:os'
 import { arcVRFCoordinatorAbi, arcVRFWrapperAbi, diceDirectAbi, hiLoGameAbi } from '@arc-vrf/sdk'
@@ -77,6 +79,8 @@ try {
 
   void runOracle({
     rpcUrl: RPC,
+    wsUrl: process.env.RPC_WS_URL || undefined,
+    pollMs: Number(process.env.POLL_MS) || undefined, // POLL_MS=30000 shows the WS push answering alone
     coordinator: d.coordinator,
     provingKey: VRF_SK,
     txAccount: acct(1),

@@ -1,20 +1,23 @@
 // Arc VRF node: watches RandomWordsRequested for its key, proves, and fulfils.
+// Requests arrive over a WebSocket subscription (push, ~0 cost while idle); a slow polling scan
+// from the last scanned block is the safety net for anything the socket misses.
 // Stateless idempotency: a request is pending iff s_requestCommitments(requestId) != 0,
 // so restarts (with a backfill START_BLOCK) never double-fulfil.
 import { arcVRFCoordinatorAbi } from '@arc-vrf/sdk'
 import { formatUnits, type Account, type Address, type Hex } from 'viem'
 import { alert, resetAlert } from './alert.ts'
-import { arcFees, connect, log } from './chain.ts'
+import { arcFees, connect, defaultWsUrl, log, wsClient } from './chain.ts'
 import { finalSeed, generateProof, keyHashOf, publicKey } from './proof.ts'
 
 export type OracleOptions = {
   rpcUrl: string
+  wsUrl?: string // eth_subscribe endpoint; default: first rpcUrl with http(s) -> ws(s)
   chainId?: number // skips the chain-id probe when the caller already has it
   coordinator: Address
   provingKey: bigint // VRF secret key: proves only, never signs transactions
   txAccount: Account // pays gas for fulfilments
   startBlock?: bigint
-  pollMs?: number
+  pollMs?: number // safety scan interval; WS events wake the loop immediately
   maxBlockRange?: bigint
   minBalanceWei?: bigint
   signal?: AbortSignal
@@ -46,10 +49,8 @@ type Pending = {
   nextTryAt: number // ms timestamp; failed requests back off instead of being dropped
 }
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // A request is only ever dropped once its on-chain commitment is gone (fulfilled). Until then,
 // failures (RPC outage, underfunded subscription, gas above the lane cap) retry with backoff.
-const OUTAGE_MS = 60_000
 const backoffMs = (attempts: number) => Math.min(60_000, 1_000 * 2 ** Math.min(attempts, 6))
 
 export async function runOracle(o: OracleOptions) {
@@ -68,7 +69,29 @@ export async function runOracle(o: OracleOptions) {
   const range = o.maxBlockRange ?? 2_000n
   let from = o.startBlock ?? (await publicClient.getBlockNumber())
   const pending = new Map<bigint, Pending>()
-  let ticks = 0
+  const OUTAGE_MS = Math.max(60_000, 3 * pollMs)
+  const BALANCE_EVERY_MS = 10 * 60_000
+  let lastBalanceAt = 0
+
+  // Fee estimate shared by fulfilments for 10 s: a burst of requests needs one eth_feeHistory, not one each.
+  let fees: { at: number; v: ReturnType<typeof arcFees> } | undefined
+  const cachedFees = () => {
+    if (!fees || Date.now() - fees.at > 10_000) fees = { at: Date.now(), v: arcFees(publicClient) }
+    const v = fees.v
+    v.catch(() => fees?.v === v && (fees = undefined)) // a failed estimate is not cached
+    return v
+  }
+
+  // The loop naps between scans; a WS event (or abort) cuts the nap short.
+  let wake = () => {}
+  const nap = (ms: number) =>
+    new Promise<void>((r) => {
+      const t = setTimeout(r, ms)
+      wake = () => {
+        clearTimeout(t)
+        r()
+      }
+    })
 
   const status = o.status
   let lastOkPoll = Date.now()
@@ -83,7 +106,46 @@ export async function runOracle(o: OracleOptions) {
     void alert('rpc-outage', `no successful poll for ${Math.round(quietMs / 1000)}s, requests are not being answered${status?.lastError ? `: ${status.lastError}` : ''}`)
   }, 10_000)
   watchdog.unref()
-  o.signal?.addEventListener('abort', () => clearInterval(watchdog))
+
+  // Push: eth_subscribe to our requests. Errors are never fatal: the scan below covers any gap,
+  // and the watch is re-established with backoff (viem does not resubscribe after a drop).
+  const wsUrl = o.wsUrl || defaultWsUrl(o.rpcUrl)
+  const ws = wsClient(wsUrl)
+  let unwatch = () => {}
+  let rewatch: ReturnType<typeof setTimeout> | undefined
+  let wsFails = 0
+  const watch = () => {
+    const since = Date.now()
+    unwatch = ws.watchContractEvent({
+      address: o.coordinator,
+      abi: arcVRFCoordinatorAbi,
+      eventName: 'RandomWordsRequested',
+      args: { keyHash },
+      onLogs: (logs) => {
+        for (const l of logs) add(l)
+        if (status) status.lastPollAt = Date.now()
+        wsFails = 0
+        wake()
+      },
+      onError: (e) => {
+        if (o.signal?.aborted || rewatch) return
+        unwatch()
+        if (Date.now() - since > 60_000) wsFails = 0 // a long-lived socket dropped: retry fast
+        const ms = backoffMs(wsFails++)
+        log(`websocket ${redact(wsUrl)} error, resubscribing in ${ms / 1000}s (scanning every ${pollMs / 1000}s meanwhile): ${(e as Error).message.split('\n')[0]}`)
+        rewatch = setTimeout(() => {
+          rewatch = undefined
+          watch()
+          wake() // scan once to cover the gap while the socket was down
+        }, ms)
+      },
+    })
+  }
+  watch()
+  o.signal?.addEventListener('abort', () => {
+    clearInterval(watchdog)
+    wake()
+  })
 
   while (!o.signal?.aborted) {
     try {
@@ -98,24 +160,7 @@ export async function runOracle(o: OracleOptions) {
           fromBlock: from,
           toBlock: to,
         })
-        for (const l of logs) {
-          const a = l.args
-          pending.set(a.requestId!, {
-            requestId: a.requestId!,
-            preSeed: a.preSeed!,
-            subId: a.subId!,
-            confirmations: a.minimumRequestConfirmations!,
-            callbackGasLimit: a.callbackGasLimit!,
-            numWords: a.numWords!,
-            extraArgs: a.extraArgs!,
-            sender: a.sender!,
-            blockNumber: l.blockNumber,
-            blockHash: l.blockHash,
-            attempts: 0,
-            nextTryAt: 0,
-          })
-          log(`request ${short(a.requestId!)} from ${a.sender} (sub ${short(a.subId!)}, ${a.numWords} words)`)
-        }
+        for (const l of logs) add(l)
         from = to + 1n
       }
 
@@ -145,7 +190,8 @@ export async function runOracle(o: OracleOptions) {
       if (status) status.pending = pending.size
 
       // Balance is advisory: a failed read is logged, never counted as a failed poll.
-      if (ticks++ % 120 === 0) {
+      if (Date.now() - lastBalanceAt >= BALANCE_EVERY_MS) {
+        lastBalanceAt = Date.now()
         try {
           const bal = await publicClient.getBalance({ address: o.txAccount.address })
           if (status) status.balanceWei = bal
@@ -163,9 +209,37 @@ export async function runOracle(o: OracleOptions) {
       if (status) status.lastError = msg
       log(`poll error: ${msg}`)
     }
-    await sleep(pollMs)
+    // Nap until the next scan, but come back within ~1 s for a request waiting on confirmations
+    // or a retry whose backoff ends sooner. Never 0: a persistent error must not spin.
+    let napMs = pollMs
+    for (const r of pending.values()) napMs = Math.min(napMs, Math.max(1_000, r.nextTryAt - Date.now()))
+    if (!o.signal?.aborted) await nap(napMs)
   }
   clearInterval(watchdog)
+  clearTimeout(rewatch)
+  unwatch()
+  await ws.transport.getRpcClient().then((c) => c.close(), () => {})
+
+  // From the WS push or the scan. Already-pending requests keep their retry state.
+  function add(l: { args: RequestArgs; blockNumber: bigint | null; blockHash: Hex | null }) {
+    const a = l.args
+    if (l.blockNumber === null || l.blockHash === null || pending.has(a.requestId!)) return
+    pending.set(a.requestId!, {
+      requestId: a.requestId!,
+      preSeed: a.preSeed!,
+      subId: a.subId!,
+      confirmations: a.minimumRequestConfirmations!,
+      callbackGasLimit: a.callbackGasLimit!,
+      numWords: a.numWords!,
+      extraArgs: a.extraArgs!,
+      sender: a.sender!,
+      blockNumber: l.blockNumber,
+      blockHash: l.blockHash,
+      attempts: 0,
+      nextTryAt: 0,
+    })
+    log(`request ${short(a.requestId!)} from ${a.sender} (sub ${short(a.subId!)}, ${a.numWords} words)`)
+  }
 
   async function fulfil(r: Pending) {
     const commitment = await publicClient.readContract({
@@ -195,7 +269,7 @@ export async function runOracle(o: OracleOptions) {
       args: [proof, rc, false],
       chain,
       account: o.txAccount,
-      ...(await arcFees(publicClient)),
+      ...(await cachedFees()),
     })
     const receipt = await publicClient.waitForTransactionReceipt({ hash })
     if (receipt.status !== 'success') throw new Error(`fulfil tx ${hash} reverted`)
@@ -210,6 +284,20 @@ export async function runOracle(o: OracleOptions) {
     resetAlert(`request-${id}`)
   }
 }
+
+type RequestArgs = {
+  requestId?: bigint
+  preSeed?: bigint
+  subId?: bigint
+  minimumRequestConfirmations?: number
+  callbackGasLimit?: number
+  numWords?: number
+  extraArgs?: Hex
+  sender?: Address
+}
+
+/** Alchemy URLs carry the API key in the path: never log it. */
+const redact = (url: string) => url.replace(/\/v2\/[^/?#]+/, '/v2/***')
 
 const short = (n: bigint) => {
   const h = n.toString(16)

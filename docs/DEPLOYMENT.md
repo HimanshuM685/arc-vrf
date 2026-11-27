@@ -42,7 +42,8 @@ Creates `.env` with three fresh keys and prints the deployer and node addresses.
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | no | empty | Enables WalletConnect / mobile wallets ([cloud.reown.com](https://cloud.reown.com)). |
 | `COORDINATOR` | no | from deployment file | Override the coordinator address. |
 | `START_BLOCK` | no | deployment block | Block the node starts scanning from. |
-| `POLL_MS` | no | `2000` | How often the node checks for requests, in ms. Each check costs ~70 Alchemy compute units: ~90M CU/month at 2000, ~360M at 500. |
+| `POLL_MS` | no | `30000` | Safety scan interval, in ms. Requests normally arrive instantly over WebSocket; the scan catches anything the socket missed. Each scan costs ~70 Alchemy compute units: ~6M CU/month at 30000. |
+| `RPC_WS_URL` | no | `RPC_URL` with `https` → `wss` | WebSocket URL the node subscribes to requests on. Alchemy serves both on the same path, so leave it empty. |
 | `PREMIUM_PCT` | no | `50` | Subscription fee on top of gas, %. Used by step 4. |
 | `WRAPPER_PREMIUM_PCT` | no | `60` | Direct-funding fee on top of gas, %. Used by step 4. |
 | `FLAT_FEE_PPM` | no | `0` | Flat fee per request, millionths of a USDC. Used by step 4. |
@@ -81,7 +82,7 @@ Expected:
 {"node":"ok","lastPollAt":"…","head":"…","pending":0,"lastFulfilAt":null,"balanceUsdc":"1","lastError":null}
 ```
 
-`make health` is the node check: `"node":"ok"` with a `lastPollAt` a few seconds old means it is watching the chain. Run it again after a minute; if `lastPollAt` hasn't moved, check `make logs`. The dashboard's “Live” badge next to **Network** on `/dashboard` only shows that your browser reaches a public RPC, not that the node works.
+`make health` is the node check: `"node":"ok"` means it is watching the chain. `lastPollAt` moves on every safety scan (and every request), so it can be up to ~30 s old (`POLL_MS`); the node is reported `stale` after 90 s (three missed scans). Run it again after a minute; if `lastPollAt` hasn't moved, check `make logs`. The dashboard's “Live” badge next to **Network** on `/dashboard` only shows that your browser reaches a public RPC, not that the node works.
 
 The website is on port `WEB_PORT` (default 3000). To test a real request end to end, create a subscription, add your consumer contract, and request randomness: `lastFulfilAt` in `make health` updates and the answer arrives within a few seconds. Both services restart automatically after a crash or reboot.
 
@@ -158,8 +159,8 @@ Pending requests survive restarts: the node re-reads them from the chain and ans
 
 Everything goes through Alchemy; nothing uses Arc's public RPCs.
 
-- **Node:** `RPC_URL`. It polls every `POLL_MS` (eth_blockNumber + eth_getLogs over at most 2,000 blocks, within Pay As You Go's 10,000-block limit) and sends answers through the same URL.
-- **Dashboard:** browsers call the web app's `/api/rpc/<chainId>`, which forwards to `ARC_TESTNET_RPC_URL`. The key never reaches the browser. The proxy only allows read methods, only `eth_call`/`eth_getLogs` against this deployment's contracts, and batches of at most 50. It shares identical calls between visitors and caches log ranges older than 64 blocks for an hour.
+- **Node:** `RPC_URL` and its WebSocket twin (`RPC_WS_URL`, default `wss://` on the same Alchemy URL). Requests arrive by `eth_subscribe` (billed per event, ~0 while idle). A safety scan every `POLL_MS` (eth_blockNumber + eth_getLogs from the last scanned block, at most 2,000 blocks per call, within Pay As You Go's 10,000-block limit) catches anything the socket missed: ~6M CU/month at the default 30 s, against ~90M for the old 2 s polling. Answers go out through `RPC_URL`. A WebSocket drop is logged and resubscribed with backoff; meanwhile requests take up to `POLL_MS` to be noticed.
+- **Dashboard:** browsers call the web app's `/api/rpc/<chainId>`, which forwards to `ARC_TESTNET_RPC_URL`. The key never reaches the browser. The proxy only allows read methods, only `eth_call`/`eth_getLogs` against this deployment's contracts, and batches of at most 50. It keeps every log of the deployment's contracts in memory and answers all eth_getLogs and eth_blockNumber calls from that index. Alchemy sees at most one eth_blockNumber and one eth_getLogs every 5 seconds, and only while someone is using the dashboard. Other reads are shared between visitors and cached for 5 seconds.
 - Use two Alchemy apps so the Alchemy dashboard shows the node's and the website's usage separately. If Alchemy rate limits (HTTP 429), the node backs off and retries, and the dashboard shows "Couldn't reach the Arc RPC. Retrying…".
 
 ### Rotating the proving key

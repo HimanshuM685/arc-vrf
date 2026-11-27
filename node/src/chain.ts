@@ -9,6 +9,7 @@ import {
   type Chain,
   type PublicClient,
   type Transport,
+  webSocket,
 } from 'viem'
 
 export function rpcTransport(rpcUrl: string): Transport {
@@ -38,6 +39,14 @@ export async function connect(rpcUrl: string, account: Account, chainId?: number
   const walletClient = createWalletClient({ chain, transport, account, pollingInterval: 500 })
   return { chain, publicClient, walletClient }
 }
+
+/** Default WebSocket URL: the first `RPC_URL` with http(s) -> ws(s). Alchemy and anvil serve both on one URL. */
+export const defaultWsUrl = (rpcUrl: string) => parseRpcUrls(rpcUrl)[0]!.replace(/^http/, 'ws')
+
+/** Push-only client for eth_subscribe. viem's own reconnect is off: after a drop it would not
+ * resubscribe, so the caller re-watches instead (a fresh socket each time). */
+export const wsClient = (url: string) =>
+  createPublicClient({ transport: webSocket(url, { reconnect: false, retryCount: 0, timeout: 10_000 }) })
 
 /** EIP-1559 fees with Arc's 20 gwei maxFeePerGas floor (lower is silently dropped by the mempool). */
 export async function arcFees(client: PublicClient) {

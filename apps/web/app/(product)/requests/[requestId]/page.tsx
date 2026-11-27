@@ -23,9 +23,14 @@ export default function RequestPage() {
     requestId = BigInt(raw)
   } catch {}
 
-  // requestId isn't indexed on RandomWordsRequested, so filter client-side.
-  const requested = useLogs(['req-all'], { address: d?.coordinator, event: ev.requested, fromBlock: d?.deployBlock }, { refetchMs: 6000 })
-  const fulfilled = useLogs(['ful', raw], { address: d?.coordinator, event: ev.fulfilled, args: { requestId }, fromBlock: d?.deployBlock }, { refetchMs: 3000 })
+  // requestId isn't indexed on RandomWordsRequested, so filter client-side. Both stop polling once they
+  // have what they need: a request and its fulfilment never change afterwards.
+  const requested = useLogs(['req-all'], { address: d?.coordinator, event: ev.requested, fromBlock: d?.deployBlock }, {
+    refetchMs: (logs) => (logs?.some((l) => l.args.requestId === requestId) ? false : 6000),
+  })
+  const fulfilled = useLogs(['ful', raw], { address: d?.coordinator, event: ev.fulfilled, args: { requestId }, fromBlock: d?.deployBlock }, {
+    refetchMs: (logs) => (logs?.length ? false : 5000),
+  })
   const req = requested.data?.find((l) => l.args.requestId === requestId)
   const ful = fulfilled.data?.[0]
 

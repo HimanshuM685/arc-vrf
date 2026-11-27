@@ -182,10 +182,13 @@ export async function runOracle(o: OracleOptions) {
     })
   let scanFails = 0
 
+  let lastHead: bigint | undefined // newest eth_blockNumber from the HTTP RPCs (fulfilment's confirmation check)
+
   while (!o.signal?.aborted) {
     step = 'eth_blockNumber'
     try {
       const head = await publicClient.getBlockNumber()
+      lastHead = head
       const scanStart = { at: Date.now(), from }
       let lastProgressLog = Date.now()
       while (from <= head) {
@@ -206,6 +209,8 @@ export async function runOracle(o: OracleOptions) {
           log(`backfilling: block ${from} of ${head} (${Number(((from - scanStart.from) * 100n) / (head - scanStart.from + 1n))}%)`)
         }
         if (r.to < to) break // the newest blocks wait for the next scan
+        // Answer what the WebSocket already delivered without waiting for a long backfill to finish.
+        if (pending.size) await fulfilReady()
       }
       if (Date.now() - scanStart.at >= 60_000) log(`backfill done: ${from - scanStart.from} blocks in ${Math.round((Date.now() - scanStart.at) / 1000)}s`)
 
@@ -222,18 +227,6 @@ export async function runOracle(o: OracleOptions) {
         resetAlert('rpc-outage')
         void alert('rpc-recovered', `polling recovered at block ${head}`)
       }
-
-      for (const r of [...pending.values()]) {
-        if (head < r.blockNumber + BigInt(r.confirmations) || Date.now() < r.nextTryAt) continue
-        await fulfil(r).catch((e) => {
-          r.attempts++
-          r.nextTryAt = Date.now() + backoffMs(r.attempts)
-          const msg = errMsg(e)
-          log(`fulfil ${short(r.requestId)} failed (attempt ${r.attempts}, retrying in ${backoffMs(r.attempts) / 1000}s): ${msg}`)
-          if (r.attempts === 5) void alert(`request-${r.requestId}`, `request ${r.requestId} still failing after 5 attempts (still retrying): ${msg}`)
-        })
-      }
-      if (status) status.pending = pending.size
 
       // Balance is advisory: a failed read is logged, never counted as a failed poll.
       if (Date.now() - lastBalanceAt >= BALANCE_EVERY_MS) {
@@ -264,6 +257,9 @@ export async function runOracle(o: OracleOptions) {
       if (status) status.lastError = msg
       log(`poll error: ${msg}`)
     }
+    // Fulfil whether or not the scan succeeded: requests from the WebSocket must not wait on eth_getLogs.
+    if (pending.size && !o.signal?.aborted) await fulfilReady()
+    if (status) status.pending = pending.size
     // Nap until the next scan, but come back within ~1 s for a request waiting on confirmations
     // or a retry whose backoff ends sooner. Never 0: a persistent error must not spin.
     // After a failed scan, retry in 2 s, 4 s, 8 s… so a short RPC blip clears before the watchdog fires.
@@ -275,6 +271,30 @@ export async function runOracle(o: OracleOptions) {
   clearTimeout(rewatch)
   unwatch()
   await closeWs(ws)
+
+  /** Answers every pending request that is confirmed and not backing off. Failures stay per request
+   * (backoff + alert), never failing the scan. A request newer than the last known head refreshes it
+   * first: a backfill's head is from when it started. */
+  async function fulfilReady() {
+    const notYet = (r: Pending) => lastHead === undefined || lastHead < r.blockNumber + BigInt(r.confirmations)
+    if ([...pending.values()].some(notYet)) {
+      try {
+        lastHead = await publicClient.getBlockNumber()
+      } catch {
+        // keep the old head; the scan reports RPC trouble
+      }
+    }
+    for (const r of [...pending.values()]) {
+      if (notYet(r) || Date.now() < r.nextTryAt) continue
+      await fulfil(r).catch((e) => {
+        r.attempts++
+        r.nextTryAt = Date.now() + backoffMs(r.attempts)
+        const msg = errMsg(e)
+        log(`fulfil ${short(r.requestId)} failed (attempt ${r.attempts}, retrying in ${backoffMs(r.attempts) / 1000}s): ${msg}`)
+        if (r.attempts === 5) void alert(`request-${r.requestId}`, `request ${r.requestId} still failing after 5 attempts (still retrying): ${msg}`)
+      })
+    }
+  }
 
   // From the WS push or the scan. Already-pending requests keep their retry state.
   function add(l: { args: RequestArgs; blockNumber: bigint | null; blockHash: Hex | null }) {

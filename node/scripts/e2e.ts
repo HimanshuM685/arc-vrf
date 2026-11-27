@@ -2,8 +2,12 @@
 // Usage: pnpm e2e   (needs `forge build` first; ANVIL=/path/to/anvil to override the binary)
 // Leave the chain running for the dashboard with KEEP=1.
 // RPC_WS_URL=ws://127.0.0.1:9 (a dead port) proves requests are still answered by the polling scan;
-// POLL_MS=30000 proves the WebSocket push answers them without the scan.
+// POLL_MS=30000 proves the WebSocket push answers them without the scan;
+// E2E_BREAK_LOGS=1 makes every eth_getLogs the node sends fail, proving requests from the WebSocket are
+// answered even while the scan is failing.
 import { spawn } from 'node:child_process'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { homedir } from 'node:os'
 import { arcVRFCoordinatorAbi, arcVRFWrapperAbi, diceDirectAbi, hiLoGameAbi } from '@arc-vrf/sdk'
 import { createPublicClient, formatUnits, http, parseEventLogs, type Account, type Address, type Hex } from 'viem'
@@ -45,6 +49,30 @@ async function waitForRpc() {
   throw new Error('anvil did not start')
 }
 
+/** A local RPC in front of anvil that refuses every eth_getLogs and forwards everything else. */
+async function logsBreakingProxy(): Promise<string> {
+  const server = createServer(async (req, res) => {
+    let body = ''
+    for await (const chunk of req) body += chunk
+    const calls = JSON.parse(body) as { id: unknown; method: string } | { id: unknown; method: string }[]
+    const broken = (c: { id: unknown; method: string }) => c.method === 'eth_getLogs'
+    const anyBroken = Array.isArray(calls) ? calls.some(broken) : broken(calls)
+    const reply = anyBroken
+      ? JSON.stringify(
+          (Array.isArray(calls) ? calls : [calls]).map((c) => ({ jsonrpc: '2.0', id: c.id, error: { code: -32000, message: 'e2e: eth_getLogs is broken' } })),
+        )
+      : await (await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body })).text()
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(Array.isArray(calls) || !anyBroken ? reply : JSON.stringify(JSON.parse(reply)[0]))
+  })
+  // Past SCAN_LAG blocks, so the scan can't treat the refusals as "range too new" and must really fail.
+  await fetch(RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'anvil_mine', params: ['0x1e'] }) })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
+  server.unref()
+  log('E2E_BREAK_LOGS: the node scans through a proxy that fails every eth_getLogs')
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+}
+
 /** The two sample consumers this test plays with. deploy() no longer ships them, so the test deploys its own:
  * HiLoGame on a fresh funded subscription (subscription method), DiceDirect through the wrapper (direct funding). */
 async function deploySamples(d: { coordinator: Address; wrapper: Address; keyHash: Hex }, deployer: Account) {
@@ -78,8 +106,8 @@ try {
   const s = await deploySamples(d, deployer)
 
   void runOracle({
-    rpcUrl: RPC,
-    wsUrl: process.env.RPC_WS_URL || undefined,
+    rpcUrl: process.env.E2E_BREAK_LOGS ? await logsBreakingProxy() : RPC,
+    wsUrl: process.env.RPC_WS_URL || (process.env.E2E_BREAK_LOGS ? RPC.replace(/^http/, 'ws') : undefined),
     pollMs: Number(process.env.POLL_MS) || undefined, // POLL_MS=30000 shows the WS push answering alone
     coordinator: d.coordinator,
     provingKey: VRF_SK,

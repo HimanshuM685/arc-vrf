@@ -63,6 +63,7 @@ The node (`node/src/oracle.ts`) is a single loop:
 
 - **Push.** A WebSocket `eth_subscribe` to `RandomWordsRequested` for its key hash (the chain's WebSocket URLs). Each event joins the pending set and wakes the loop at once. A dropped socket is resubscribed with backoff on the next URL and never stops the node.
 - **Safety scan.** Every `POLL_MS` (30 s; 500 ms in the e2e test), read `RandomWordsRequested` logs for its key hash in ranges of up to 10,000 blocks from the last scanned block, so nothing the socket missed is lost. On startup it begins at the deployment block (or `START_BLOCK`). While a request waits on confirmations or a retry, the loop wakes every second instead.
+- **Answers don't wait on the scan.** Pending requests are fulfilled after every scan chunk and after every scan, even a failed one. A request from the WebSocket is answered within about a second during a long backfill or while `eth_getLogs` is failing.
 - **Pending set.** Requests are kept in memory. Before answering, the node checks `s_requestCommitments(requestId)`: non-zero means still pending. This is the only source of truth, so the node has no database, and a restart re-scans logs and safely picks up exactly the unanswered requests. A request is never answered twice.
 - **Answer.** Generate the proof, send `fulfillRandomWords`, wait for the receipt.
 - **Retry.** A failed answer (RPC error, subscription underfunded, gas price above the lane's cap) is retried with exponential backoff from 1 s to 60 s, without limit. After the fifth failure it sends an alert.

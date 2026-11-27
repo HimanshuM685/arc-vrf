@@ -17,11 +17,12 @@ export function systemSub(d: Deployment | undefined, id: bigint | undefined): 'w
   if (id === BigInt(d.wrapperSubId)) return 'wrapper'
 }
 
-/** True when the RPC refused the log range as too wide ("block range", "range is too large"). The proxy's
- * own "limits eth_getLogs to N blocks" is deliberately not matched: splitting can't fix a Free-tier key. */
+/** True when the RPC refused the log range as too wide ("block range", "requested range too large"). The
+ * proxy answers any range from its index, so its own 503s ("Every dashboard RPC refused 10,000-block
+ * eth_getLogs…", "Log index is behind the chain") deliberately don't match: splitting can't fix those. */
 const isRangeError = (e: unknown) => {
   const x = e as { message?: string; shortMessage?: string; details?: string }
-  return /block range|range is too (large|wide)/i.test(`${x?.message ?? ''} ${x?.shortMessage ?? ''} ${x?.details ?? ''}`)
+  return /block range|range (is )?too (large|wide)/i.test(`${x?.message ?? ''} ${x?.shortMessage ?? ''} ${x?.details ?? ''}`)
 }
 
 /** One getLogs call over [from, to]. Rate limited: wait (1s, 2s, 4s…) and retry the same range,

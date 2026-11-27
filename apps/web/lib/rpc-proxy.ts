@@ -8,16 +8,21 @@
 //  - batches of at most MAX_BATCH calls.
 //
 // Load control (public RPCs rate limit bursts):
-//  - Failover: each call goes to the first RPC that isn't resting; one that fails or rate limits rests
-//    for UPSTREAM_REST_MS, so it gets a break instead of more traffic.
+//  - Failover: each call goes to the first RPC that isn't resting, then the rest in order (resting ones
+//    last, never skipped). Only health failures (network error, timeout, HTTP 5xx/429, rate limiting) rest
+//    an RPC for UPSTREAM_REST_MS; an answer that is wrong for this request (HTTP 4xx, a per-call error, a
+//    backend too far behind) fails over without resting it.
 //  - Log index: every log of the deployment's contracts is held in memory and eth_getLogs is answered
 //    from it, whatever the filter. The RPCs see at most one eth_blockNumber + one eth_getLogs per
-//    SYNC_MS, and only while someone is using the dashboard. A backfill (cold start, long quiet spell)
-//    goes out as JSON-RPC batches of 10,000-block reads, so it costs a few round trips, not hundreds.
+//    SYNC_MS, and only while someone is using the dashboard. It covers everything since the deploy block:
+//    recent blocks go out as JSON-RPC batches of 10,000-block reads; blocks older than `historyBlocks`
+//    (pruned on the first RPCs) one 10,000-block read per request, which the full-history RPCs serve.
 //  - Everything else: identical calls in flight share one upstream request, results cached briefly
 //    (eth_blockNumber for BLOCK_TTL_MS, so wallets see new blocks and receipts promptly).
 // ponytail: index and cache are per process; move them to Redis or an indexer if the web service runs as
 // several copies or mainnet log volume outgrows memory.
+
+import { isRateLimited } from '@arc-vrf/sdk'
 
 export type RpcCall = { jsonrpc?: string; id?: unknown; method?: unknown; params?: unknown }
 export type RpcReply = { jsonrpc: '2.0'; id: unknown; result?: unknown; error?: { code: number; message: string } }
@@ -31,11 +36,12 @@ const SYNC_MS = 5_000
 /** Logs this far behind head are final in the index; newer ones are re-read every sync, in case the
  * backend node that answered was a block or two behind. */
 const SETTLED_BLOCKS = 64n
-/** Blocks per eth_getLogs: publicnode and Blockdaemon (first in the list) serve 10,000. */
+/** Blocks per eth_getLogs: every listed RPC but dRPC serves 10,000. */
 const CHUNK = 10_000n
-/** How long an RPC that failed or rate limited is skipped. */
+/** How long an RPC that failed or rate limited is tried last. */
 const UPSTREAM_REST_MS = 30_000
-const RATE_LIMITED = /rate.?limit|too many requests/i
+/** Per RPC request: a hung RPC must fail over, not block the shared index sync. */
+const UPSTREAM_TIMEOUT_MS = 10_000
 /** After the upstream refused our log range (Free tier: 10 blocks), wait this long before trying again. */
 const RANGE_REFUSED_MS = 60_000
 
@@ -73,6 +79,9 @@ export class UpstreamError extends Error {
     this.status = status
   }
 }
+
+/** A JSON-RPC error object as an Error, so the SDK's isRateLimited can read its code and message. */
+const rpcError = (e: { code: number; message: string }) => Object.assign(new Error(e.message), { code: e.code })
 
 const fail = (id: unknown, code: number, message: string): RpcReply => ({ jsonrpc: '2.0', id: id ?? null, error: { code, message } })
 const hex = (n: bigint) => `0x${n.toString(16)}`
@@ -128,11 +137,13 @@ export function createRpcProxy(o: {
   allowed: string[]
   /** Deployment block: where the log index starts. */
   startBlock: number
-  /** Index at most this many blocks back from head (public RPCs prune older logs). */
+  /** The first RPCs keep logs this far back from head; older chunks are read one per request (the
+   * full-history RPCs further down the list rate limit batches). */
   historyBlocks?: bigint
   fetch?: typeof fetch
   now?: () => number
   maxEntries?: number
+  timeoutMs?: number
 }) {
   const doFetch = o.fetch ?? fetch
   const now = o.now ?? Date.now
@@ -143,25 +154,40 @@ export function createRpcProxy(o: {
 
   const upstreams: readonly string[] = typeof o.upstream === "string" ? [o.upstream] : o.upstream
   const restUntil = new Map<string, number>()
+  /** Failed over without resting the RPC: the answer was wrong for this request, not a sign of ill health. */
+  class WrongAnswer extends UpstreamError {}
 
-  /** One batch to the first RPC that isn't resting, failing over to the next on a network or HTTP error,
-   * a bad body, or a rate-limited answer. `strict` (index reads): any per-call error fails over too, e.g.
-   * a range that RPC won't serve. Otherwise per-call errors (an eth_call revert) are real answers. */
-  async function sendUpstream(calls: { method: string; params: unknown[] }[], strict = false): Promise<RpcReply[]> {
-    const awake = upstreams.filter((u) => (restUntil.get(u) ?? 0) <= now())
-    let lastError: unknown
-    for (const u of awake.length ? awake : upstreams) {
+  /** One batch to each RPC in turn (resting ones last) until one answers. Fails over on a network or HTTP
+   * error, a bad body, or a rate-limited answer. `strict` (index reads): any per-call error fails over too,
+   * e.g. a range that RPC won't serve; otherwise per-call errors (an eth_call revert) are real answers.
+   * `accept` can refuse a whole answer (a backend too far behind). Throws a range refusal only when every RPC
+   * refused the range; any other failure wins, so a blip on the good RPCs isn't mistaken for one. */
+  async function sendUpstream(
+    calls: { method: string; params: unknown[] }[],
+    strict = false,
+    accept?: (replies: RpcReply[]) => boolean,
+  ): Promise<RpcReply[]> {
+    const t = now()
+    const order = [...upstreams].sort((a, b) => Number((restUntil.get(a) ?? 0) > t) - Number((restUntil.get(b) ?? 0) > t))
+    const errors: unknown[] = []
+    for (const u of order) {
       try {
         const replies = await sendTo(u, calls)
-        const bad = replies.find((r) => r.error && (strict || RATE_LIMITED.test(r.error.message)))
-        if (bad) throw new UpstreamError(RATE_LIMITED.test(bad.error!.message) ? 429 : 502, bad.error!.message)
+        const bad = replies.find((r) => r.error && (strict || isRateLimited(rpcError(r.error))))
+        if (bad) {
+          if (isRateLimited(rpcError(bad.error!))) throw new UpstreamError(429, bad.error!.message)
+          throw new WrongAnswer(502, bad.error!.message)
+        }
+        if (accept && !accept(replies)) throw new WrongAnswer(503, 'Arc RPC is behind the chain')
+        restUntil.delete(u)
         return replies
       } catch (e) {
-        lastError = e
-        if (upstreams.length > 1) restUntil.set(u, now() + UPSTREAM_REST_MS)
+        errors.push(e)
+        if (upstreams.length > 1 && !(e instanceof WrongAnswer)) restUntil.set(u, now() + UPSTREAM_REST_MS)
       }
     }
-    throw lastError
+    const isRange = (e: unknown) => e instanceof UpstreamError && blockRangeLimit(e.message) !== undefined
+    throw errors.find((e) => !isRange(e)) ?? errors[errors.length - 1]
   }
 
   async function sendTo(url: string, calls: { method: string; params: unknown[] }[]): Promise<RpcReply[]> {
@@ -169,10 +195,16 @@ export function createRpcProxy(o: {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(calls.map((c, i) => ({ jsonrpc: '2.0', id: i, method: c.method, params: c.params }))),
+      signal: AbortSignal.timeout(o.timeoutMs ?? UPSTREAM_TIMEOUT_MS),
     })
-    if (!res.ok) throw new UpstreamError(res.status, `Arc RPC answered HTTP ${res.status}`)
+    if (!res.ok) {
+      const msg = `Arc RPC answered HTTP ${res.status}`
+      // 4xx (but 429) is about what was sent, not the RPC's health.
+      throw res.status >= 500 || res.status === 429 ? new UpstreamError(res.status, msg) : new WrongAnswer(res.status, msg)
+    }
     const body = (await res.json()) as RpcReply[] | RpcReply
-    if (!Array.isArray(body)) throw new UpstreamError(502, body?.error?.message ?? 'Arc RPC returned an invalid batch response')
+    // A single error object for a batch: this RPC won't take this batch (size, shape), not ill health.
+    if (!Array.isArray(body)) throw new WrongAnswer(502, body?.error?.message ?? 'Arc RPC returned an invalid batch response')
     const byId = new Map(body.map((r) => [r.id, r]))
     return calls.map((_, i) => byId.get(i) ?? fail(i, -32603, 'Missing response from Arc RPC'))
   }
@@ -195,7 +227,18 @@ export function createRpcProxy(o: {
   let syncing: Promise<void> | undefined
 
   const logsFilter = (from: bigint, to: bigint) => ({ method: 'eth_getLogs', params: [{ address: addresses, fromBlock: hex(from), toBlock: hex(to) }] })
-  const getLogs = (from: bigint, to: bigint) => call1('eth_getLogs', logsFilter(from, to).params) as Promise<RawLog[]>
+  /** Logs for each [from, to] range, in one batch with an eth_blockNumber from the same RPC. Failover can
+   * land on an RPC other than the one that gave `h`; if that one is behind, it may answer [] for blocks it
+   * hasn't seen, and those would be settled for good. So its own head must cover every range it answers
+   * (up to `settled`: newer logs are re-read every sync anyway). */
+  async function readLogs(ranges: [bigint, bigint][], settled: bigint): Promise<RawLog[][]> {
+    const need = ranges.reduce((m, [, to]) => (to > m ? to : m), 0n)
+    const replies = await sendUpstream([...ranges.map(([f, t]) => logsFilter(f, t)), { method: 'eth_blockNumber', params: [] }], true, (r) => {
+      const theirs = BigInt(r[r.length - 1]!.result as string)
+      return theirs >= (need < settled ? need : settled)
+    })
+    return replies.slice(0, -1).map((r) => r.result as RawLog[])
+  }
 
   /** Brings the index up to head, at most once per `minGapMs`. Concurrent callers share one sync. A
    * failed sync keeps serving the last good index (and waits before trying again, so a rate-limited
@@ -209,24 +252,26 @@ export function createRpcProxy(o: {
         // A load-balanced backend that is behind: keep the index we have rather than move head back.
         if (head !== undefined && h < head) return
         const settled = h - SETTLED_BLOCKS
-        // Older logs are pruned on the public RPCs: start (or, after a long quiet spell, resume) inside the window.
-        if (o.historyBlocks !== undefined && settledTo < h - o.historyBlocks) settledTo = h - o.historyBlocks
-        // Backfill (first sync, or after a long quiet spell): full chunks, MAX_BATCH per round trip. A batch
-        // is applied only if every read in it succeeded, so settledTo never skips a failed range.
+        // Pruned on the first RPCs: read one chunk per request (the full-history RPCs rate limit batches).
+        const pruned = o.historyBlocks !== undefined ? h - o.historyBlocks : -1n
+        // Backfill (first sync, or after a long quiet spell): full chunks, up to MAX_BATCH - 1 per round trip
+        // (one slot is the head check). A batch is applied only if every read in it succeeded, so settledTo
+        // never skips a failed range.
         while (settled - settledTo >= CHUNK) {
           const n = (settled - settledTo) / CHUNK
-          const batch = Array.from({ length: Number(n < BigInt(MAX_BATCH) ? n : BigInt(MAX_BATCH)) }, (_, i) =>
-            logsFilter(settledTo + 1n + BigInt(i) * CHUNK, settledTo + BigInt(i + 1) * CHUNK),
-          )
-          const replies = await sendUpstream(batch, true)
-          for (const r of replies) settledLogs.push(...(r.result as RawLog[]))
-          settledTo += BigInt(batch.length) * CHUNK
+          const max = settledTo + CHUNK <= pruned ? 1n : BigInt(MAX_BATCH - 1)
+          const ranges = Array.from({ length: Number(n < max ? n : max) }, (_, i): [bigint, bigint] => [
+            settledTo + 1n + BigInt(i) * CHUNK,
+            settledTo + BigInt(i + 1) * CHUNK,
+          ])
+          for (const logs of await readLogs(ranges, settled)) settledLogs.push(...logs)
+          settledTo += BigInt(ranges.length) * CHUNK
         }
         if (h - settledTo > CHUNK) {
-          settledLogs.push(...(await getLogs(settledTo + 1n, settled)))
+          settledLogs.push(...(await readLogs([[settledTo + 1n, settled]], settled))[0]!)
           settledTo = settled
         }
-        const tail = settledTo < h ? await getLogs(settledTo + 1n, h) : []
+        const tail = settledTo < h ? (await readLogs([[settledTo + 1n, h]], settled))[0]! : []
         if (settled > settledTo) {
           settledLogs.push(...tail.filter((l) => BigInt(l.blockNumber) <= settled))
           settledTo = settled

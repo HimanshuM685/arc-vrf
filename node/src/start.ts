@@ -1,10 +1,10 @@
 // Starts the Arc VRF node from env vars (see .env.example). Used by the CLI (src/index.ts).
-import { ARC_LOG_HISTORY_BLOCKS, arcTestnet, getDeployment } from '@arc-vrf/sdk'
+import { arcTestnet, getDeployment } from '@arc-vrf/sdk'
 import { createPublicClient, parseEther, type Address, type Hex } from 'viem'
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
 import { createServer } from 'node:http'
 import { alert } from './alert.ts'
-import { errMsg, log, rpcTransport } from './chain.ts'
+import { defaultWsUrl, errMsg, log, rpcTransport } from './chain.ts'
 import { runOracle, type NodeStatus } from './oracle.ts'
 
 const env = (k: string) => {
@@ -48,7 +48,8 @@ async function startOnce(
 
   await runOracle({
     rpcUrl,
-    wsUrl: process.env.RPC_WS_URL || undefined, // optional override; default: the chain's WebSocket list
+    // RPC_WS_URL, else (with an RPC_URL override) that URL's own WebSocket, else the chain's WebSocket list.
+    wsUrl: process.env.RPC_WS_URL || (process.env.RPC_URL ? defaultWsUrl(process.env.RPC_URL) : undefined),
     chainId,
     coordinator,
     provingKey: keys.provingKey,
@@ -59,8 +60,6 @@ async function startOnce(
         ? BigInt(deployment.deployBlock)
         : undefined,
     pollMs: keys.pollMs,
-    // Public RPCs prune old logs; a custom RPC_URL (anvil, an archive node) can read everything.
-    maxHistoryBlocks: process.env.RPC_URL ? undefined : ARC_LOG_HISTORY_BLOCKS,
     minBalanceWei: parseEther(process.env.MIN_BALANCE_USDC ?? '1'),
     signal,
     status,

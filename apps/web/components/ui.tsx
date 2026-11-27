@@ -130,7 +130,8 @@ export function NotDeployed({ chainName }: { chainName?: string }) {
       <p className="font-semibold">Arc VRF isn’t deployed on {chainName ?? 'this network'} yet.</p>
       <p className="mt-1.5 text-sm text-muted">
         Switch your wallet to Arc Testnet, or deploy your own with{' '}
-        <code className="hex rounded bg-code px-1">pnpm --filter @arc-vrf/node deploy-contracts</code> and regenerate the SDK.
+        <code className="hex rounded bg-code px-1">RPC_URL=&lt;this network&apos;s RPC&gt; pnpm --filter @arc-vrf/node deploy-contracts</code>{' '}
+        (without <code className="hex rounded bg-code px-1">RPC_URL</code> it deploys to Arc Testnet) and regenerate the SDK.
       </p>
     </Panel>
   )

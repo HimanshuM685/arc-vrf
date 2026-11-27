@@ -117,10 +117,11 @@ test('log index: backfills in 10k chunks, then answers any filter from memory', 
   const results = await Promise.all(filters.map((f) => logsOf(proxy, f)))
   assert.deepEqual(results[0]!.map((l) => Number(l.blockNumber)), [5, 12_000, 25_090])
   assert.deepEqual(results[1]!.map((l) => Number(l.blockNumber)), [5])
-  // blockNumber + 2 full chunks [0,9999] [10000,19999] + tail [20000, 25100] (fits one chunk)
-  assert.deepEqual(up.seen, ['eth_blockNumber', 'eth_getLogs', 'eth_getLogs', 'eth_getLogs'])
+  // blockNumber, then 2 full chunks [0,9999] [10000,19999] + tail [20000, 25100], each read batch with
+  // the answering RPC's own head check
+  assert.deepEqual(up.seen, ['eth_blockNumber', 'eth_getLogs', 'eth_getLogs', 'eth_blockNumber', 'eth_getLogs', 'eth_blockNumber'])
   await logsOf(proxy, { address: COORD, fromBlock: '0x0' })
-  assert.equal(up.seen.length, 4, 'still within SYNC_MS: no new upstream calls')
+  assert.equal(up.seen.length, 6, 'still within SYNC_MS: no new upstream calls')
 })
 
 test('backfill chunks go out as one batch', async () => {
@@ -132,7 +133,7 @@ test('backfill chunks go out as one batch', async () => {
   }) as unknown as typeof globalThis.fetch
   const proxy = createRpcProxy({ upstream: 'u', allowed: [COORD], startBlock: 0, fetch, now: () => 0 })
   await logsOf(proxy, { address: COORD, fromBlock: '0x0' })
-  assert.deepEqual(batches, [1, 3, 1], 'blockNumber, three 10k chunks in one round trip, tail')
+  assert.deepEqual(batches, [1, 4, 2], 'blockNumber, three 10k chunks + head check in one round trip, tail + head check')
 })
 
 test('a sync that fails after backfilling never returns a log twice', async () => {
@@ -201,7 +202,7 @@ test('log index: later syncs only read the unsettled tail; a lagging answer is r
   up.seen.length = 0
   const after = await logsOf(proxy, { address: COORD, fromBlock: '0x0' })
   assert.deepEqual(after.map((l) => Number(l.blockNumber)), [990, 995])
-  assert.deepEqual(up.seen, ['eth_blockNumber', 'eth_getLogs'], 'one tail read per sync once caught up')
+  assert.deepEqual(up.seen, ['eth_blockNumber', 'eth_getLogs', 'eth_blockNumber'], 'one tail read per sync once caught up')
 })
 
 test('no traffic, no upstream calls; a failed sync keeps serving the last good index', async () => {
@@ -300,9 +301,84 @@ test('failover: a failing or rate-limited RPC is skipped for a while; reverts ar
   assert.equal(hits[0], 'a')
 })
 
-test('historyBlocks: the index never reads logs older than the window', async () => {
+test('historyBlocks: the whole history is indexed, pruned chunks one per request', async () => {
   const up = fakeChain({ head: 100_000, logs: [{ address: COORD, topics: [T_REQ], block: 5 }, { address: COORD, topics: [T_REQ], block: 99_000 }] })
-  const p = createRpcProxy({ upstream: 'u', allowed: [COORD], startBlock: 0, historyBlocks: 10_000n, fetch: up.fetch, now: () => 0 })
-  assert.deepEqual((await logsOf(p, { address: COORD, fromBlock: '0x0' })).map((l) => Number(l.blockNumber)), [99_000])
-  assert.ok(up.seen.filter((m) => m === 'eth_getLogs').length <= 2, 'one window, not the whole chain')
+  const batches: number[] = []
+  const fetch = ((url: string, init: { body: string }) => {
+    batches.push((JSON.parse(init.body) as unknown[]).length)
+    return up.fetch(url, init as RequestInit)
+  }) as unknown as typeof globalThis.fetch
+  const p = createRpcProxy({ upstream: 'u', allowed: [COORD], startBlock: 0, historyBlocks: 10_000n, fetch, now: () => 0 })
+  assert.deepEqual((await logsOf(p, { address: COORD, fromBlock: '0x0' })).map((l) => Number(l.blockNumber)), [5, 99_000])
+  // blockNumber; 9 pruned chunks, one per request (+ head check); the rest of the settled range; the tail.
+  assert.deepEqual(batches, [1, ...Array(9).fill(2), 2, 2])
+})
+
+/** Several fake RPCs by URL. Each answers like fakeChain unless `override` returns a Response first. */
+function fakeRpcs(head: number, logs: { address: string; topics: string[]; block: number }[], override: (url: string, calls: { method: string; params: { fromBlock?: string }[] }[]) => Response | Promise<Response> | undefined) {
+  const base = fakeChain({ head, logs })
+  const hits: string[] = []
+  const fetch = (async (url: string, init: { body: string; signal?: AbortSignal }) => {
+    hits.push(url)
+    return (await override(url, JSON.parse(init.body))) ?? base.fetch(url, init as RequestInit)
+  }) as unknown as typeof globalThis.fetch
+  return { base, hits, fetch }
+}
+const rangeRefusal = (calls: { id?: number; method: string }[]) =>
+  Response.json(calls.map((c, i) => (c.method === 'eth_getLogs' ? { jsonrpc: '2.0', id: i, error: { code: -32600, message: 'you can make eth_getLogs requests with up to a 100 block range' } } : { jsonrpc: '2.0', id: i, result: hex(1_000) })))
+
+test('resting RPCs are still tried last; a range refusal from one RPC is not taken for all of them', async () => {
+  let t = 0
+  let aDown = true
+  const up = fakeRpcs(1_000, [{ address: COORD, topics: [T_REQ], block: 500 }], (url, calls) => {
+    if (url === 'a' && aDown) return new Response('down', { status: 500 })
+    if (url === 'b' && calls.some((c) => c.method === 'eth_getLogs')) return rangeRefusal(calls)
+  })
+  const p = createRpcProxy({ upstream: ['a', 'b'], allowed: [COORD], startBlock: 0, fetch: up.fetch, now: () => t })
+  await p({ id: 1, method: 'eth_chainId' }) // a fails (rests), b answers
+  aDown = false
+  t = 1_000 // a still resting: b goes first, refuses the range, then a (resting, not skipped) serves it
+  assert.deepEqual((await logsOf(p, { address: COORD, fromBlock: '0x0' })).map((l) => Number(l.blockNumber)), [500])
+})
+
+test('an answer wrong for the request (HTTP 400, per-call error) fails over without resting the RPC', async () => {
+  let bad = true
+  const up = fakeRpcs(1_000, [], (url) => (url === 'a' && bad ? new Response('bad request', { status: 400 }) : undefined))
+  const p = createRpcProxy({ upstream: ['a', 'b'], allowed: [COORD], startBlock: 0, fetch: up.fetch, now: () => 0 })
+  await p({ id: 1, method: 'eth_chainId' })
+  bad = false
+  up.hits.length = 0
+  await p({ id: 2, method: 'eth_gasPrice' })
+  assert.equal(up.hits[0], 'a', 'a was not rested')
+})
+
+test('a hung RPC times out and fails over', async () => {
+  const up = fakeRpcs(1_000, [], () => undefined)
+  // The hung fetch never settles by itself: the proxy's timeout must abort it.
+  const fetch = ((url: string, init: RequestInit) =>
+    url === 'a'
+      ? new Promise<Response>((_, reject) => init.signal!.addEventListener('abort', () => reject(init.signal!.reason)))
+      : up.fetch(url, init)) as unknown as typeof globalThis.fetch
+  const p = createRpcProxy({ upstream: ['a', 'b'], allowed: [COORD], startBlock: 0, fetch, now: () => 0, timeoutMs: 50 })
+  const alive = setTimeout(() => {}, 1_000) // AbortSignal.timeout doesn't hold the event loop open by itself
+  const r = (await p({ id: 1, method: 'eth_blockNumber' })) as RpcReply
+  clearTimeout(alive)
+  assert.equal(r.result, hex(1_000))
+})
+
+test('logs from an RPC that is behind the head are never settled', async () => {
+  let aLogsFail = true
+  const logs = [{ address: COORD, topics: [T_REQ], block: 900 }]
+  const up = fakeRpcs(1_000, logs, (url, calls) => {
+    if (!calls.some((c) => c.method === 'eth_getLogs')) return undefined
+    // a: its log reads fail; b: 300 blocks behind, so it answers [] and an old head
+    if (url === 'a' && aLogsFail) return Response.json(calls.map((_, i) => ({ jsonrpc: '2.0', id: i, error: { code: -32000, message: 'header not found' } })))
+    if (url === 'b') return Response.json(calls.map((c, i) => ({ jsonrpc: '2.0', id: i, result: c.method === 'eth_getLogs' ? [] : hex(700) })))
+  })
+  let t = 0
+  const p = createRpcProxy({ upstream: ['a', 'b'], allowed: [COORD], startBlock: 0, fetch: up.fetch, now: () => t })
+  await assert.rejects(logsOf(p, { address: COORD, fromBlock: '0x0' }))
+  aLogsFail = false
+  t = 6_000
+  assert.deepEqual((await logsOf(p, { address: COORD, fromBlock: '0x0' })).map((l) => Number(l.blockNumber)), [900])
 })

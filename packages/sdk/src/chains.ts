@@ -10,8 +10,9 @@ export const arcTestnet = defineChain({
   rpcUrls: {
     default: {
       // The public RPCs the node and the dashboard use, tried in this order (from Chainlist, tested).
-      // publicnode and Blockdaemon serve 10,000-block eth_getLogs and batches, so they go first; Circle
-      // and QuickNode allow 2,000 blocks and rate limit batches; dRPC's free tier only 100 blocks.
+      // All four serve 10,000-block eth_getLogs. publicnode and Blockdaemon serve batches, so they go first,
+      // but prune logs (see ARC_LOG_HISTORY_BLOCKS); Circle and QuickNode keep full history and rate limit
+      // batches. dRPC's free tier only allows 100 blocks.
       http: [
         'https://arc-testnet-rpc.publicnode.com',
         'https://rpc.blockdaemon.testnet.arc.io',
@@ -63,9 +64,9 @@ export const arcLocal = defineChain({
 
 export const chains = [arcTestnet, arcMainnet, arcLocal] as const
 
-/** How far back the node and dashboard read logs on Arc. publicnode and Blockdaemon prune logs older than
- * ~430,000 blocks (~2.5 days) and answer "pruned history unavailable"; this stays inside that window.
- * ponytail: older history needs an archive RPC or an indexer. */
+/** How far back publicnode and Blockdaemon keep logs, with margin: they prune older than ~430,000 blocks
+ * (~2.5 days) and answer "pruned history unavailable", so the dashboard reads older ranges one per request
+ * (Circle and QuickNode keep full history but rate limit batches). */
 export const ARC_LOG_HISTORY_BLOCKS = 300_000n
 
 /** Arc's mempool silently drops transactions with maxFeePerGas below 20 gwei. */

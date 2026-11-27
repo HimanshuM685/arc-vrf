@@ -41,6 +41,9 @@ services:
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       MIN_BALANCE_USDC: ${MIN_BALANCE_USDC:-1}
       POLL_MS: ${POLL_MS:-30000}
+      # Optional: replace the built-in public RPC list (e.g. an archive node). Empty = the list.
+      RPC_URL: ${RPC_URL:-}
+      RPC_WS_URL: ${RPC_WS_URL:-}
       HEALTH_PORT: "8080"
     depends_on: [web] # only so the shared image is built first
     deploy:

@@ -40,7 +40,7 @@ export async function connect(rpcUrl: string, account: Account, chainId?: number
   return { chain, publicClient, walletClient }
 }
 
-/** WebSocket URL for an RPC_URL override: the first URL with http(s) -> ws(s) (right for anvil). */
+/** WebSocket URL for an RPC_URL override: its first URL with http(s) -> ws(s) (right for anvil and Alchemy). */
 export const defaultWsUrl = (rpcUrl: string) => parseRpcUrls(rpcUrl)[0]!.replace(/^http/, 'ws')
 
 /** Push-only client for eth_subscribe. viem's own reconnect is off: after a drop it would not

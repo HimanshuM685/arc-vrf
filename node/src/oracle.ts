@@ -17,9 +17,8 @@ export type OracleOptions = {
   provingKey: bigint // VRF secret key: proves only, never signs transactions
   txAccount: Account // pays gas for fulfilments
   startBlock?: bigint
-  maxHistoryBlocks?: bigint // never scan further back than this from head (public RPCs prune old logs)
   pollMs?: number // safety scan interval; WS events wake the loop immediately
-  maxBlockRange?: bigint
+  maxBlockRange?: bigint // eth_getLogs blocks per call (default 10,000: every listed Arc RPC but dRPC)
   minBalanceWei?: bigint
   signal?: AbortSignal
   status?: NodeStatus // updated in place every poll, for health checks
@@ -67,13 +66,15 @@ export async function runOracle(o: OracleOptions) {
   log(`node up on ${chain.name}: coordinator ${o.coordinator}, keyHash ${keyHash}, sender ${o.txAccount.address}`)
 
   const pollMs = o.pollMs ?? 500
-  let range = o.maxBlockRange ?? 2_000n // shrinks if the RPC says it allows less
-  const head0 = await publicClient.getBlockNumber()
-  let from = o.startBlock ?? head0
-  if (o.maxHistoryBlocks !== undefined && from < head0 - o.maxHistoryBlocks) {
-    from = head0 - o.maxHistoryBlocks
-    log(`scanning from block ${from}: the RPCs keep only recent logs (requests older than that aren't picked up)`)
-  }
+  const fullRange = o.maxBlockRange ?? 10_000n
+  // Shrinks when an RPC says it allows less, for RANGE_RETRY_MS only: with failover, the error seen is the
+  // last RPC's (dRPC: 100 blocks), even if the others failed for an unrelated reason.
+  let range = fullRange
+  let rangeResetAt = 0
+  const RANGE_RETRY_MS = 10 * 60_000
+  // No history clamp: old ranges the first RPCs pruned ("pruned history unavailable") fail over to
+  // Circle and QuickNode, which keep full history.
+  let from = o.startBlock ?? (await publicClient.getBlockNumber())
   const pending = new Map<bigint, Pending>()
   const OUTAGE_MS = Math.max(60_000, 3 * pollMs)
   const BALANCE_EVERY_MS = 10 * 60_000
@@ -175,6 +176,7 @@ export async function runOracle(o: OracleOptions) {
 
   while (!o.signal?.aborted) {
     let step = 'eth_blockNumber'
+    if (range < fullRange && Date.now() >= rangeResetAt) range = fullRange
     try {
       const head = await publicClient.getBlockNumber()
       while (from <= head) {
@@ -230,9 +232,10 @@ export async function runOracle(o: OracleOptions) {
     } catch (e) {
       const lim = blockRangeLimit(e)
       if (lim && lim > 0n && lim < range) {
-        // Only ever shrinks, so this can't loop. Rescan at once: not a failure.
+        // Only shrinks until the reset, so this can't loop. Rescan at once: not a failure.
         range = lim
-        log(`RPC limits eth_getLogs to ${lim} blocks; scanning in ${lim}-block ranges.`)
+        rangeResetAt = Date.now() + RANGE_RETRY_MS
+        log(`RPC limits eth_getLogs to ${lim} blocks; scanning in ${lim}-block ranges for ${RANGE_RETRY_MS / 60_000} minutes.`)
         continue
       }
       const msg = `${step}: ${errMsg(e)}`

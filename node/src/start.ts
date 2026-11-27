@@ -1,5 +1,5 @@
 // Starts the Arc VRF node from env vars (see .env.example). Used by the CLI (src/index.ts).
-import { arcTestnet, getDeployment } from '@arc-vrf/sdk'
+import { ARC_LOG_HISTORY_BLOCKS, ARC_TESTNET_FULL_HISTORY_RPCS, arcTestnet, getDeployment } from '@arc-vrf/sdk'
 import { createPublicClient, parseEther, type Address, type Hex } from 'viem'
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
 import { createServer } from 'node:http'
@@ -60,6 +60,10 @@ async function startOnce(
         ? BigInt(deployment.deployBlock)
         : undefined,
     pollMs: keys.pollMs,
+    // Old ranges straight to the full-history RPCs; an RPC_URL override (anvil, private RPC) is used as is.
+    ...(process.env.RPC_URL || chainId !== arcTestnet.id
+      ? {}
+      : { archiveRpcUrl: ARC_TESTNET_FULL_HISTORY_RPCS.join(','), historyBlocks: ARC_LOG_HISTORY_BLOCKS }),
     minBalanceWei: parseEther(process.env.MIN_BALANCE_USDC ?? '1'),
     signal,
     status,

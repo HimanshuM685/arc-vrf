@@ -1,7 +1,7 @@
 import { RpcRequestError } from 'viem'
 import { describe, expect, it } from 'vitest'
 import { blockRangeLimit, errMsg } from '../src/chain.ts'
-import { SCAN_LAG, readNearHead } from '../src/oracle.ts'
+import { SCAN_LAG, isOld, readNearHead } from '../src/oracle.ts'
 
 describe('errMsg', () => {
   it('keeps the provider message on one line and masks the URL', () => {
@@ -62,5 +62,14 @@ describe('blockRangeLimit', () => {
     expect(blockRangeLimit(rpcErr('One of the blocks specified in filter cannot be found.'))).toBeUndefined()
     expect(blockRangeLimit(rpcErr('Your app has exceeded its compute units per second capacity', 429))).toBeUndefined()
     expect(blockRangeLimit(new Error('fetch failed'))).toBeUndefined()
+  })
+})
+
+describe('isOld', () => {
+  it('routes only chunks older than the main RPCs keep to the full-history RPCs', () => {
+    expect(isOld(600_000n, 1_000_000n, 300_000n)).toBe(true)
+    expect(isOld(700_000n, 1_000_000n, 300_000n)).toBe(false) // exactly at the edge: main RPCs still have it
+    expect(isOld(900_000n, 1_000_000n, 300_000n)).toBe(false)
+    expect(isOld(0n, 1_000_000n, undefined)).toBe(false) // no archive configured
   })
 })

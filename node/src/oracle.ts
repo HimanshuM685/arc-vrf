@@ -4,9 +4,9 @@
 // Stateless idempotency: a request is pending iff s_requestCommitments(requestId) != 0,
 // so restarts (with a backfill START_BLOCK) never double-fulfil.
 import { arcVRFCoordinatorAbi } from '@arc-vrf/sdk'
-import { formatUnits, type Account, type Address, type Hex } from 'viem'
+import { createPublicClient, formatUnits, type Account, type Address, type Hex, type PublicClient } from 'viem'
 import { alert, resetAlert } from './alert.ts'
-import { arcFees, blockRangeLimit, connect, defaultWsUrl, errMsg, isRateLimited, log, wsClient } from './chain.ts'
+import { arcFees, blockRangeLimit, connect, rpcTransport, defaultWsUrl, errMsg, isRateLimited, log, wsClient } from './chain.ts'
 import { finalSeed, generateProof, keyHashOf, publicKey } from './proof.ts'
 
 export type OracleOptions = {
@@ -18,6 +18,9 @@ export type OracleOptions = {
   txAccount: Account // pays gas for fulfilments
   startBlock?: bigint
   pollMs?: number // safety scan interval; WS events wake the loop immediately
+  /** Full-history RPC(s) for log ranges older than `historyBlocks` below head, which the main RPCs prune. */
+  archiveRpcUrl?: string
+  historyBlocks?: bigint
   maxBlockRange?: bigint // eth_getLogs blocks per call (default 10,000: every listed Arc RPC but dRPC)
   minBalanceWei?: bigint
   signal?: AbortSignal
@@ -75,6 +78,8 @@ export async function runOracle(o: OracleOptions) {
   // No history clamp: old ranges the first RPCs pruned ("pruned history unavailable") fail over to
   // Circle and QuickNode, which keep full history.
   let from = o.startBlock ?? (await publicClient.getBlockNumber())
+  // Old ranges skip the pruned RPCs: each would answer "pruned history unavailable" before failing over.
+  const archive = o.archiveRpcUrl ? createPublicClient({ chain, transport: rpcTransport(o.archiveRpcUrl) }) : undefined
   const pending = new Map<bigint, Pending>()
   const OUTAGE_MS = Math.max(60_000, 3 * pollMs)
   const BALANCE_EVERY_MS = 10 * 60_000
@@ -101,7 +106,8 @@ export async function runOracle(o: OracleOptions) {
     })
 
   const status = o.status
-  let lastOkPoll = Date.now()
+  let lastOkPoll = Date.now() // last scan progress (a finished scan or one chunk of a backfill)
+  let step = 'starting' // what the scan is doing, for the watchdog when a call hangs
   let outage = false
   // Watchdog on its own timer: catches RPC calls that hang (no error ever reaches the loop)
   // as well as ones that fail. Alert cooldown dedups; failed deliveries are retried next tick.
@@ -110,7 +116,9 @@ export async function runOracle(o: OracleOptions) {
     if (quietMs <= OUTAGE_MS) return
     if (!outage) resetAlert('rpc-recovered')
     outage = true
-    void alert('rpc-outage', `safety scan failing for ${Math.round(quietMs / 1000)}s (requests still arrive over WebSocket while it is connected)${status?.lastError ? `: ${status.lastError}` : ''}`)
+    // No error recorded means a call hasn't returned at all: name the step it is stuck in.
+    const why = status?.lastError ?? `no progress, stuck in ${step} (an RPC call may be hanging)`
+    void alert('rpc-outage', `safety scan failing for ${Math.round(quietMs / 1000)}s (requests still arrive over WebSocket while it is connected): ${why}`)
   }, 10_000)
   watchdog.unref()
 
@@ -163,8 +171,8 @@ export async function runOracle(o: OracleOptions) {
     wake()
   })
 
-  const readLogs = (fromBlock: bigint, toBlock: bigint) =>
-    publicClient.getContractEvents({
+  const readLogs = (fromBlock: bigint, toBlock: bigint, client: PublicClient = publicClient) =>
+    client.getContractEvents({
       address: o.coordinator,
       abi: arcVRFCoordinatorAbi,
       eventName: 'RandomWordsRequested',
@@ -175,18 +183,31 @@ export async function runOracle(o: OracleOptions) {
   let scanFails = 0
 
   while (!o.signal?.aborted) {
-    let step = 'eth_blockNumber'
-    if (range < fullRange && Date.now() >= rangeResetAt) range = fullRange
+    step = 'eth_blockNumber'
     try {
       const head = await publicClient.getBlockNumber()
+      const scanStart = { at: Date.now(), from }
+      let lastProgressLog = Date.now()
       while (from <= head) {
-        const to = from + range - 1n < head ? from + range - 1n : head
-        step = `eth_getLogs ${from}-${to}`
-        const r = await readNearHead(readLogs, from, to, head)
+        if (range < fullRange && Date.now() >= rangeResetAt) range = fullRange
+        const old = archive && isOld(from + fullRange - 1n, head, o.historyBlocks)
+        // Old chunks: full range from the archive RPCs, which serve it (a shrink is about the main list).
+        const span = old ? fullRange : range
+        const to = from + span - 1n < head ? from + span - 1n : head
+        step = `eth_getLogs ${from}-${to}${old ? ' (full-history RPC)' : ''}`
+        const r = old ? { logs: await readLogs(from, to, archive), to } : await readNearHead(readLogs, from, to, head)
         for (const l of r.logs) add(l)
         from = r.to + 1n
+        // Each chunk read is progress: a long backfill must not look like an outage.
+        lastOkPoll = Date.now()
+        if (status) status.lastPollAt = lastOkPoll
+        if (Date.now() - lastProgressLog >= 60_000) {
+          lastProgressLog = Date.now()
+          log(`backfilling: block ${from} of ${head} (${Number(((from - scanStart.from) * 100n) / (head - scanStart.from + 1n))}%)`)
+        }
         if (r.to < to) break // the newest blocks wait for the next scan
       }
+      if (Date.now() - scanStart.at >= 60_000) log(`backfill done: ${from - scanStart.from} blocks in ${Math.round((Date.now() - scanStart.at) / 1000)}s`)
 
       // Stamp the poll before fulfilments: a slow fulfil batch must not look like an outage.
       lastOkPoll = Date.now()
@@ -319,6 +340,9 @@ export async function runOracle(o: OracleOptions) {
     resetAlert(`request-${id}`)
   }
 }
+
+/** True when a chunk ending at `to` is older than the main RPCs keep logs (`history` blocks below head). */
+export const isOld = (to: bigint, head: bigint, history: bigint | undefined) => history !== undefined && to < head - history
 
 /** Blocks the scan steps back when the newest range is refused. */
 export const SCAN_LAG = 20n

@@ -69,5 +69,9 @@ export const chains = [arcTestnet, arcMainnet, arcLocal] as const
  * (Circle and QuickNode keep full history but rate limit batches). */
 export const ARC_LOG_HISTORY_BLOCKS = 300_000n
 
+/** Arc Testnet RPCs that keep full log history (tested: 10,000-block eth_getLogs from the deploy block).
+ * Ranges older than ARC_LOG_HISTORY_BLOCKS go straight to these, skipping the pruned ones. */
+export const ARC_TESTNET_FULL_HISTORY_RPCS = ['https://rpc.testnet.arc.io', 'https://rpc.quicknode.testnet.arc.io'] as const
+
 /** Arc's mempool silently drops transactions with maxFeePerGas below 20 gwei. */
 export const ARC_MIN_MAX_FEE_PER_GAS = 20_000_000_000n

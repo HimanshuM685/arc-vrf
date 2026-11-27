@@ -17,8 +17,16 @@ export function systemSub(d: Deployment | undefined, id: bigint | undefined): 'w
   if (id === BigInt(d.wrapperSubId)) return 'wrapper'
 }
 
+/** True when the RPC refused the log range as too wide ("block range", "range is too large"). The proxy's
+ * own "limits eth_getLogs to N blocks" is deliberately not matched: splitting can't fix a Free-tier key. */
+const isRangeError = (e: unknown) => {
+  const x = e as { message?: string; shortMessage?: string; details?: string }
+  return /block range|range is too (large|wide)/i.test(`${x?.message ?? ''} ${x?.shortMessage ?? ''} ${x?.details ?? ''}`)
+}
+
 /** One getLogs call over [from, to]. Rate limited: wait (1s, 2s, 4s…) and retry the same range,
- * since splitting would only send more requests. Any other error (range too large): split in half. */
+ * since splitting would only send more requests. Range refused as too wide: split in half. Any other
+ * error (RPC down, proxy index not ready) throws at once: splitting it would only multiply failing requests. */
 async function getLogsRange<E extends AbiEvent>(
   client: PublicClient,
   params: { address: Address; event: E; args?: Record<string, unknown> },
@@ -29,7 +37,7 @@ async function getLogsRange<E extends AbiEvent>(
   try {
     return await retryRateLimited(() => client.getLogs({ ...params, fromBlock: from, toBlock: to } as never) as Promise<Log[]>, 6)
   } catch (e) {
-    if (isRateLimited(e) || depth > 12 || to <= from) throw e
+    if (!isRangeError(e) || depth > 12 || to <= from) throw e
     const mid = (from + to) / 2n
     return [...(await getLogsRange(client, params, from, mid, depth + 1)), ...(await getLogsRange(client, params, mid + 1n, to, depth + 1))]
   }

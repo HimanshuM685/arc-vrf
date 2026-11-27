@@ -4,11 +4,10 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { keepPreviousData } from '@tanstack/react-query'
 import { ContractFunctionRevertedError, parseEventLogs, type BaseError } from 'viem'
-import { useAccount, useChains, useReadContracts } from 'wagmi'
+import { useAccount, useChains, useReadContract, useReadContracts } from 'wagmi'
 import { Badge, Button, NeedsWallet, NotDeployed, PageHead, Panel, TxNote } from '@/components/ui'
-import { ev } from '@/lib/events'
 import { short, usdc } from '@/lib/format'
-import { systemSub, useDeployment, useLogs, useTx } from '@/lib/hooks'
+import { systemSub, useDeployment, useTx } from '@/lib/hooks'
 
 export default function SubscriptionsPage() {
   const { chainId, deployment: d } = useDeployment()
@@ -29,16 +28,21 @@ function MySubscriptions() {
   const { address } = useAccount()
   const router = useRouter()
   const tx = useTx()
-  // Candidates: subscriptions this wallet created or was transferred (owner is an indexed topic, so
-  // the scan is cheap). Only these are read; current ownership is checked below.
-  const created = useLogs(['created', address], { address: d!.coordinator, event: ev.subCreated, args: { owner: address }, fromBlock: d!.deployBlock })
-  const transferred = useLogs(['transferred'], { address: d!.coordinator, event: ev.subTransferred, fromBlock: d!.deployBlock })
-  const ids = [
-    ...new Set([
-      ...(created.data ?? []).map((l) => l.args.subId!),
-      ...(transferred.data ?? []).filter((l) => l.args.to === address).map((l) => l.args.subId!),
-    ]),
-  ]
+  // Every live subscription ID straight from the coordinator's on-chain set (cancelled ones are
+  // removed from it): one eth_call, no log scan from the deploy block. Ownership is checked below.
+  // ponytail: reads every live sub; page by startIndex or add an owner index once there are thousands.
+  const active = useReadContract({
+    address: d!.coordinator,
+    abi: arcVRFCoordinatorAbi,
+    functionName: 'getActiveSubscriptionIds',
+    args: [0n, 0n], // maxCount 0 = all
+    query: { refetchInterval: 15_000, placeholderData: keepPreviousData },
+  })
+  // IndexOutOfRange is the coordinator's answer when no subscription exists yet: an empty list.
+  const none = !!(active.error as BaseError | null)?.walk?.(
+    (e) => e instanceof ContractFunctionRevertedError && e.data?.errorName === 'IndexOutOfRange',
+  )
+  const ids = none ? [] : (active.data ?? [])
   const subs = useReadContracts({
     contracts: ids.map((id) => ({ address: d!.coordinator, abi: arcVRFCoordinatorAbi, functionName: 'getSubscription', args: [id] }) as const),
     query: { refetchInterval: 15_000, placeholderData: keepPreviousData },
@@ -56,8 +60,8 @@ function MySubscriptions() {
     if (log) router.push(`/subscriptions/${log.args.subId}`)
   }
 
-  const loading = created.isLoading || transferred.isLoading || subs.isLoading
-  const failed = created.isError || transferred.isError || (subs.isError && !subs.data) || (unreadable && mine.length === 0)
+  const loading = (active.isLoading && !none) || subs.isLoading
+  const failed = (active.isError && !none && !active.data) || (subs.isError && !subs.data) || (unreadable && mine.length === 0)
   return (
     <div className="space-y-5">
       <div>

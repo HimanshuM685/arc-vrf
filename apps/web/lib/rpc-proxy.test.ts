@@ -225,3 +225,40 @@ test('a first sync that fails, and any other upstream HTTP error, surface with t
   const b = createRpcProxy({ upstream: 'u', allowed: [], startBlock: 0, fetch: limited.fetch })
   await assert.rejects(b({ id: 1, method: 'eth_chainId' }), (e) => e instanceof UpstreamError && e.status === 429)
 })
+
+test('blockRangeLimit reads the Alchemy Free-tier refusal', async () => {
+  const { blockRangeLimit } = await import('./rpc-proxy.ts')
+  const msg =
+    'Under the Free tier plan, you can make eth_getLogs requests with up to a 10 block range. Based on your parameters, this block range should work: [0x4671107, 0x4671110]. Upgrade to PAYG for expanded block range.'
+  assert.equal(blockRangeLimit(msg), 10n)
+  assert.equal(blockRangeLimit('block range too wide, this block range should work: [0x10, 0x14]'), 5n)
+  assert.equal(blockRangeLimit('One of the blocks specified in filter cannot be found.'), undefined)
+})
+
+test('a Free-tier key fails fast with a fix, and is not retried for a minute', async () => {
+  let t = 0
+  const seen: string[] = []
+  const fetch = (async (_url: string, init: { body: string }) => {
+    const calls = JSON.parse(init.body) as { id: number; method: string; params: { fromBlock: string; toBlock: string }[] }[]
+    seen.push(...calls.map((c) => c.method))
+    const reply = (c: (typeof calls)[number]) => {
+      if (c.method === 'eth_blockNumber') return { result: hex(100_000) }
+      const width = Number(c.params[0]!.toBlock) - Number(c.params[0]!.fromBlock) + 1
+      return width > 10
+        ? { error: { code: -32600, message: 'Under the Free tier plan, you can make eth_getLogs requests with up to a 10 block range.' } }
+        : { result: [] }
+    }
+    return new Response(JSON.stringify(calls.map((c) => ({ jsonrpc: '2.0', id: c.id, ...reply(c) }))))
+  }) as unknown as typeof globalThis.fetch
+  const p = createRpcProxy({ upstream: 'http://alchemy', allowed: [COORD], startBlock: 0, fetch, now: () => t })
+  const get = () => p({ jsonrpc: '2.0', id: 1, method: 'eth_getLogs', params: [{ address: COORD, fromBlock: '0x0', toBlock: 'latest' }] })
+
+  await assert.rejects(get(), (e: unknown) => e instanceof UpstreamError && /Pay As You Go/.test(e.message))
+  const calls = seen.length
+  t += 30_000 // past the normal 5 s sync gap, inside the minute
+  await assert.rejects(get(), /Pay As You Go/)
+  assert.equal(seen.length, calls, 'no upstream call within the minute')
+  t += 31_000
+  await assert.rejects(get(), /Pay As You Go/)
+  assert.ok(seen.length > calls, 'tries again after a minute')
+})

@@ -30,6 +30,18 @@ const SYNC_MS = 5_000
 const SETTLED_BLOCKS = 64n
 /** Alchemy Pay As You Go: at most 10,000 blocks per eth_getLogs. */
 const CHUNK = 10_000n
+/** After the upstream refused our log range (Free tier: 10 blocks), wait this long before trying again. */
+const RANGE_REFUSED_MS = 60_000
+
+/** The block range the provider says it allows, when it refused a wider eth_getLogs (Alchemy Free tier:
+ * "up to a 10 block range"). Undefined for any other error. */
+export function blockRangeLimit(message: string): bigint | undefined {
+  if (!/block range/i.test(message)) return undefined
+  const upTo = message.match(/up to (?:a )?(\d+)[ -]block range/i)
+  if (upTo) return BigInt(upTo[1]!)
+  const ok = message.match(/\[(0x[0-9a-f]+),\s*(0x[0-9a-f]+)\]/i)
+  return ok ? BigInt(ok[2]!) - BigInt(ok[1]!) + 1n : undefined
+}
 
 const METHODS = new Set([
   'eth_chainId',
@@ -148,6 +160,7 @@ export function createRpcProxy(o: {
   let recent: RawLog[] = []
   let head: bigint | undefined
   let lastSync = -Infinity
+  let nextGapMs = 0 // extra wait after the upstream refused our log range
   let lastError: unknown
   let syncing: Promise<void> | undefined
 
@@ -159,7 +172,7 @@ export function createRpcProxy(o: {
    * Alchemy isn't hammered); only a first sync that fails surfaces the error. */
   function sync(minGapMs = SYNC_MS): Promise<void> {
     if (syncing) return syncing
-    if (now() - lastSync < minGapMs) return head !== undefined ? Promise.resolve() : Promise.reject(lastError)
+    if (now() - lastSync < Math.max(minGapMs, nextGapMs)) return head !== undefined ? Promise.resolve() : Promise.reject(lastError)
     syncing = (async () => {
       try {
         const h = BigInt((await call1('eth_blockNumber', [])) as string)
@@ -190,7 +203,15 @@ export function createRpcProxy(o: {
         }
         recent = tail.filter((l) => BigInt(l.blockNumber) > settledTo)
         head = h
+        nextGapMs = 0
       } catch (e) {
+        // The index needs wide log reads (10,000 blocks each). Indexing from the deploy block 10 blocks at a
+        // time is thousands of calls and trips Free tier's throughput limit, so say what to fix instead.
+        const lim = e instanceof UpstreamError ? blockRangeLimit(e.message) : undefined
+        if (lim !== undefined) {
+          e = new UpstreamError(503, `Dashboard RPC limits eth_getLogs to ${lim} blocks (Alchemy Free tier?): put its Alchemy app on Pay As You Go`)
+          nextGapMs = RANGE_REFUSED_MS
+        }
         lastError = e
         if (head === undefined) throw e
       } finally {

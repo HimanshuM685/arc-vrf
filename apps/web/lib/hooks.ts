@@ -44,7 +44,7 @@ async function getLogsRange<E extends AbiEvent>(
 }
 
 // Arc testnet/mainnet logs are answered by the /api/rpc proxy from its in-memory index (any range, no
-// Alchemy call per request), and local anvil has no range limit, so one request usually covers everything.
+// upstream RPC call per request), and local anvil has no range limit, so one request usually covers everything.
 // getLogsRange still splits if an RPC refuses the range.
 const LOG_CHUNK = 1_000_000n
 // getBlockNumber and getLogs may be answered by different backend nodes behind the RPC, and one

@@ -11,12 +11,13 @@ import { finalSeed, generateProof, keyHashOf, publicKey } from './proof.ts'
 
 export type OracleOptions = {
   rpcUrl: string
-  wsUrl?: string // eth_subscribe endpoint; default: first rpcUrl with http(s) -> ws(s)
+  wsUrl?: string // eth_subscribe endpoint; default: the chain's WebSocket list, else rpcUrl with http(s) -> ws(s)
   chainId?: number // skips the chain-id probe when the caller already has it
   coordinator: Address
   provingKey: bigint // VRF secret key: proves only, never signs transactions
   txAccount: Account // pays gas for fulfilments
   startBlock?: bigint
+  maxHistoryBlocks?: bigint // never scan further back than this from head (public RPCs prune old logs)
   pollMs?: number // safety scan interval; WS events wake the loop immediately
   maxBlockRange?: bigint
   minBalanceWei?: bigint
@@ -66,8 +67,13 @@ export async function runOracle(o: OracleOptions) {
   log(`node up on ${chain.name}: coordinator ${o.coordinator}, keyHash ${keyHash}, sender ${o.txAccount.address}`)
 
   const pollMs = o.pollMs ?? 500
-  let range = o.maxBlockRange ?? 2_000n // shrinks if the RPC refuses it (Alchemy Free tier: 10)
-  let from = o.startBlock ?? (await publicClient.getBlockNumber())
+  let range = o.maxBlockRange ?? 2_000n // shrinks if the RPC says it allows less
+  const head0 = await publicClient.getBlockNumber()
+  let from = o.startBlock ?? head0
+  if (o.maxHistoryBlocks !== undefined && from < head0 - o.maxHistoryBlocks) {
+    from = head0 - o.maxHistoryBlocks
+    log(`scanning from block ${from}: the RPCs keep only recent logs (requests older than that aren't picked up)`)
+  }
   const pending = new Map<bigint, Pending>()
   const OUTAGE_MS = Math.max(60_000, 3 * pollMs)
   const BALANCE_EVERY_MS = 10 * 60_000
@@ -108,9 +114,12 @@ export async function runOracle(o: OracleOptions) {
   watchdog.unref()
 
   // Push: eth_subscribe to our requests. Errors are never fatal: the scan below covers any gap,
-  // and the watch is re-established with backoff (viem does not resubscribe after a drop).
-  const wsUrl = o.wsUrl || defaultWsUrl(o.rpcUrl)
-  const ws = wsClient(wsUrl)
+  // and the watch is re-established with backoff on the next URL in the list (viem does not
+  // resubscribe after a drop), so a provider that keeps dropping the socket is rotated out.
+  const wsUrls = o.wsUrl ? [o.wsUrl] : chain.rpcUrls.default.webSocket?.length ? [...chain.rpcUrls.default.webSocket] : [defaultWsUrl(o.rpcUrl)]
+  let wsIdx = 0
+  let ws = wsClient(wsUrls[0]!)
+  const closeWs = (c: typeof ws) => c.transport.getRpcClient().then((x) => x.close(), () => {})
   let unwatch = () => {}
   let rewatch: ReturnType<typeof setTimeout> | undefined
   let wsFails = 0
@@ -132,9 +141,15 @@ export async function runOracle(o: OracleOptions) {
         unwatch()
         if (Date.now() - since > 60_000) wsFails = 0 // a long-lived socket dropped: retry fast
         const ms = backoffMs(wsFails++)
-        log(`websocket ${hostOf(wsUrl)} error, resubscribing in ${ms / 1000}s (scanning every ${pollMs / 1000}s meanwhile): ${errMsg(e)}`)
+        const failed = wsUrls[wsIdx]!
+        wsIdx = (wsIdx + 1) % wsUrls.length
+        log(`websocket ${hostOf(failed)} error, resubscribing on ${hostOf(wsUrls[wsIdx]!)} in ${ms / 1000}s (scanning every ${pollMs / 1000}s meanwhile): ${errMsg(e)}`)
         rewatch = setTimeout(() => {
           rewatch = undefined
+          if (wsUrls.length > 1) {
+            void closeWs(ws)
+            ws = wsClient(wsUrls[wsIdx]!)
+          }
           watch()
           wake() // scan once to cover the gap while the socket was down
         }, ms)
@@ -217,7 +232,7 @@ export async function runOracle(o: OracleOptions) {
       if (lim && lim > 0n && lim < range) {
         // Only ever shrinks, so this can't loop. Rescan at once: not a failure.
         range = lim
-        log(`RPC limits eth_getLogs to ${lim} blocks (Alchemy Free tier?); scanning in ${lim}-block ranges. Pay As You Go allows far wider ranges at lower cost.`)
+        log(`RPC limits eth_getLogs to ${lim} blocks; scanning in ${lim}-block ranges.`)
         continue
       }
       const msg = `${step}: ${errMsg(e)}`
@@ -235,7 +250,7 @@ export async function runOracle(o: OracleOptions) {
   clearInterval(watchdog)
   clearTimeout(rewatch)
   unwatch()
-  await ws.transport.getRpcClient().then((c) => c.close(), () => {})
+  await closeWs(ws)
 
   // From the WS push or the scan. Already-pending requests keep their retry state.
   function add(l: { args: RequestArgs; blockNumber: bigint | null; blockHash: Hex | null }) {
@@ -332,7 +347,7 @@ type RequestArgs = {
   sender?: Address
 }
 
-/** RPC URLs often carry an API key in the path or query (Alchemy, QuickNode, dRPC): log only the host. */
+/** RPC URLs often carry an API key in the path or query (QuickNode, dRPC, Alchemy…): log only the host. */
 const hostOf = (url: string) => {
   try {
     return new URL(url).host

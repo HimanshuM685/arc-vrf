@@ -32,9 +32,9 @@ const connectors = connectorsForWallets(
 
 const batch = { wait: 50 } as const
 
-// Arc testnet and mainnet go through the web app's own /api/rpc proxy, which forwards to Alchemy with the
-// key kept server-side (app/api/rpc/[chainId]/route.ts). No public RPCs. batch: the dashboard's many
-// small reads go out as one HTTP request per tick.
+// Arc testnet and mainnet go through the web app's own /api/rpc proxy, which forwards to Arc's public RPCs
+// with failover, a shared cache and a log index (app/api/rpc/[chainId]/route.ts), so visitors don't each
+// hit the public RPCs' rate limits. batch: the dashboard's many small reads go out as one HTTP request per tick.
 const proxied = (chainId: number): Transport => http(`/api/rpc/${chainId}`, { batch, retryCount: 2, retryDelay: 500 })
 
 export const wagmiConfig = createConfig({

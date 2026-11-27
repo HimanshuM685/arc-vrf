@@ -8,7 +8,6 @@ Set up Arc VRF from scratch and run it in production. For how it works, see [ARC
 - Node 22+ and pnpm 10
 - [Foundry](https://getfoundry.sh)
 - git
-- An [Alchemy](https://dashboard.alchemy.com) account on **Pay As You Go**, with two apps on Arc Testnet (one for the node, one for the dashboard). The free tier caps `eth_getLogs` at 10 blocks, too small for the node and dashboard scans. There is no public RPC fallback.
 - USDC for gas: ~2.5 for the deployer, ~1 for the node. Testnet faucet: https://faucet.circle.com
 
 ## 1. Install
@@ -29,9 +28,7 @@ Creates `.env` with three fresh keys and prints the deployer and node addresses.
 
 | Variable | Required | Default | What it does |
 |---|---|---|---|
-| `RPC_URL` | yes | none | The node's Alchemy URL, `https://arc-testnet.g.alchemy.com/v2/<key>`. Also used by `make deploy-contracts`. |
-| `ARC_TESTNET_RPC_URL` | yes | none | The dashboard's Alchemy URL. Used server-side by its `/api/rpc` proxy, never sent to browsers. |
-| `ARC_MAINNET_RPC_URL` | no | empty | Same, for Arc mainnet once deployed there. |
+| `RPC_URL` | no | Arc Testnet public RPCs | Only for `make deploy-contracts` to another chain (e.g. local anvil). The node and dashboard always use the hard-coded list. |
 | `VRF_PROVING_KEY` | yes | set by `make keys` | Computes the randomness. Never fund it. Anyone holding it can predict results. |
 | `NODE_TX_KEY` | yes | set by `make keys` | Pays gas for answers (~0.005 USDC each). |
 | `DEPLOYER_KEY` | deploy only | set by `make keys` | Deploys and owns the contracts. Remove from `.env` after step 4. |
@@ -42,8 +39,7 @@ Creates `.env` with three fresh keys and prints the deployer and node addresses.
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | no | empty | Enables WalletConnect / mobile wallets ([cloud.reown.com](https://cloud.reown.com)). |
 | `COORDINATOR` | no | from deployment file | Override the coordinator address. |
 | `START_BLOCK` | no | deployment block | Block the node starts scanning from. |
-| `POLL_MS` | no | `30000` | Safety scan interval, in ms. Requests normally arrive instantly over WebSocket; the scan catches anything the socket missed. Each scan costs ~70 Alchemy compute units: ~6M CU/month at 30000. |
-| `RPC_WS_URL` | no | `RPC_URL` with `https` → `wss` | WebSocket URL the node subscribes to requests on. Alchemy serves both on the same path, so leave it empty. |
+| `POLL_MS` | no | `30000` | Safety scan interval, in ms. Requests normally arrive instantly over WebSocket; the scan catches anything the socket missed. Each scan is one eth_blockNumber + one eth_getLogs on the public RPCs. |
 | `PREMIUM_PCT` | no | `50` | Subscription fee on top of gas, %. Used by step 4. |
 | `WRAPPER_PREMIUM_PCT` | no | `60` | Direct-funding fee on top of gas, %. Used by step 4. |
 | `FLAT_FEE_PPM` | no | `0` | Flat fee per request, millionths of a USDC. Used by step 4. |
@@ -155,13 +151,15 @@ Pending requests survive restarts: the node re-reads them from the chain and ans
 - **Website:** stateless. Run more copies on other servers behind your load balancer, or on one host remove the fixed `ports` mapping and use `docker compose up -d --scale web=3` behind a proxy.
 - **Node:** never run more than one per proving key. Two nodes race to answer the same requests and waste gas on reverted transactions. If throughput ever becomes a limit, the next step is batch fulfilment through `BatchArcVRFCoordinator` (deployed, not yet used by the node).
 
-### RPC (Alchemy)
+### RPC (public, hard-coded)
 
-Everything goes through Alchemy; nothing uses Arc's public RPCs.
+No RPC account or key. Both services use Arc's public RPCs from `packages/sdk/src/chains.ts`, in this order: publicnode, Blockdaemon, Circle (`rpc.testnet.arc.io`), QuickNode, dRPC. publicnode and Blockdaemon go first because they serve 10,000-block `eth_getLogs` and batched calls; Circle and QuickNode allow 2,000 blocks and rate limit batches; dRPC's free tier only 100 blocks. To change the list, edit that file and run `make update`.
 
-- **Node:** `RPC_URL` and its WebSocket twin (`RPC_WS_URL`, default `wss://` on the same Alchemy URL). Requests arrive by `eth_subscribe` (billed per event, ~0 while idle). A safety scan every `POLL_MS` (eth_blockNumber + eth_getLogs from the last scanned block, at most 2,000 blocks per call, within Pay As You Go's 10,000-block limit) catches anything the socket missed: ~6M CU/month at the default 30 s, against ~90M for the old 2 s polling. Answers go out through `RPC_URL`. A WebSocket drop is logged and resubscribed with backoff; meanwhile requests take up to `POLL_MS` to be noticed.
-- **Dashboard:** browsers call the web app's `/api/rpc/<chainId>`, which forwards to `ARC_TESTNET_RPC_URL`. The key never reaches the browser. The proxy only allows read methods, only `eth_call`/`eth_getLogs` against this deployment's contracts, and batches of at most 50. It keeps every log of the deployment's contracts in memory and answers all eth_getLogs calls from that index. Alchemy sees at most one eth_blockNumber and one eth_getLogs every 5 seconds, and only while someone is using the dashboard; after a restart the index rebuilds in a few batched round trips. eth_blockNumber is cached for 1 second, so wallets see receipts promptly. Other reads are shared between visitors and cached for 5 seconds.
-- Use two Alchemy apps so the Alchemy dashboard shows the node's and the website's usage separately. If Alchemy rate limits (HTTP 429), the node backs off and retries, and the dashboard shows "Couldn't reach the Arc RPC. Retrying…".
+publicnode and Blockdaemon prune logs older than about 2.5 days, so the node's startup scan and the dashboard's request history only cover the last 300,000 blocks (about 40 hours, `ARC_LOG_HISTORY_BLOCKS`). A request left unanswered longer than that (node down for two days) isn't picked up after a restart; set `START_BLOCK` and `RPC_URL=https://rpc.testnet.arc.io` once to backfill it from Circle's full-history RPC.
+
+- **Node:** every call goes to the first RPC and fails over to the next on any error (viem `fallback`). Requests arrive by WebSocket `eth_subscribe` on the first of the chain's WebSocket URLs; a dropped socket is resubscribed with backoff on the next one. A safety scan every `POLL_MS` (eth_blockNumber + eth_getLogs from the last scanned block, at most 2,000 blocks per call, which every listed RPC but dRPC serves) catches anything the socket missed; meanwhile requests take up to `POLL_MS` to be noticed.
+- **Dashboard:** browsers call the web app's `/api/rpc/<chainId>`, which forwards to the same list, failing over in order. An RPC that errors or rate limits is skipped for 30 seconds. The proxy only allows read methods, only `eth_call`/`eth_getLogs` against this deployment's contracts, and batches of at most 50. It keeps every log of the deployment's contracts in memory and answers all eth_getLogs calls from that index. The RPCs see at most one eth_blockNumber and one eth_getLogs every 5 seconds, and only while someone is using the dashboard; after a restart the index rebuilds in a few batched round trips. eth_blockNumber is cached for 1 second, so wallets see receipts promptly. Other reads are shared between visitors and cached for 5 seconds.
+- If every RPC fails or rate limits at once, the node backs off and retries, and the dashboard shows "Couldn't reach the Arc RPC. Retrying…".
 
 ### Rotating the proving key
 
@@ -179,9 +177,8 @@ On testnet, redeploying with a fresh `.env` is simpler.
 | `make up` fails with `set VRF_PROVING_KEY in .env` | `.env` is missing or a required key is empty. |
 | Node logs `missing env …` or a key error and exits | A key is malformed. Config errors stop the node at once instead of retrying. |
 | Node logs `keyHash … is not registered` and keeps restarting | The deployment used a different proving key, or `COORDINATOR` points elsewhere. Redeploy, or register the key. |
-| Alert or log: `safety scan failing … Free tier … up to a 10 block range` | The node's Alchemy app is on the Free tier, which allows eth_getLogs over only 10 blocks. The node notices and keeps scanning in 10-block ranges, but that costs ~45M CU/month at `POLL_MS=30000`, more than the Free tier's allowance. Put the app on Pay As You Go (or point `RPC_URL` at a PAYG app), then `make up`. To stay on Free tier for now, raise `POLL_MS` to `120000`. |
-| Dashboard request history or subscription details never load; `Couldn't reach the Arc RPC`, with `limits eth_getLogs to 10 blocks` in the response | `ARC_TESTNET_RPC_URL` is an Alchemy Free-tier app (10-block `eth_getLogs`), so the log index can't build. Put that app on Pay As You Go, then `make up`. The subscriptions list doesn't need logs and works either way. |
-| `make health` shows `"node":"stale"` | The node can't reach Alchemy. Check `make logs`, then the key in `RPC_URL`, your plan and its compute-unit usage in the Alchemy dashboard. |
+| Dashboard request history never loads; `Every dashboard RPC refused 10,000-block eth_getLogs` | publicnode and Blockdaemon are both down or limited, and the rest only serve small ranges. It retries every minute; if it lasts, put another wide-range RPC near the top of the list in `packages/sdk/src/chains.ts` and `make update`. |
+| `make health` shows `"node":"stale"` | No RPC in the list answered for three scans. Check `make logs` for the error; `curl` the first URLs from the server to see which are down. |
 | Requests stay "Waiting for proof" | Check the node log for `fulfil … failed`. Common causes: the subscription balance is too low (fund it; the node retries automatically), the node is out of gas (top up), or Arc's gas price is above `MAX_GAS_PRICE_GWEI`. |
 | Dashboard says "Arc VRF isn't deployed on … yet" | The image was built before the deployment file existed. Commit it and run `make update`. |
 | Dashboard can't connect mobile wallets | Set `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` and run `make up`. |

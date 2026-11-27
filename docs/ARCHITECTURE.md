@@ -61,7 +61,7 @@ Fulfilment needs the hash of the request's block. The coordinator looks in three
 
 The node (`node/src/oracle.ts`) is a single loop:
 
-- **Push.** A WebSocket `eth_subscribe` to `RandomWordsRequested` for its key hash (`RPC_WS_URL`, default `RPC_URL` with `http` → `ws`). Each event joins the pending set and wakes the loop at once. A dropped socket is resubscribed with backoff and never stops the node.
+- **Push.** A WebSocket `eth_subscribe` to `RandomWordsRequested` for its key hash (the chain's WebSocket URLs). Each event joins the pending set and wakes the loop at once. A dropped socket is resubscribed with backoff on the next URL and never stops the node.
 - **Safety scan.** Every `POLL_MS` (30 s; 500 ms in the e2e test), read `RandomWordsRequested` logs for its key hash in ranges of up to 2,000 blocks from the last scanned block, so nothing the socket missed is lost. On startup it begins at the deployment block (or `START_BLOCK`). While a request waits on confirmations or a retry, the loop wakes every second instead.
 - **Pending set.** Requests are kept in memory. Before answering, the node checks `s_requestCommitments(requestId)`: non-zero means still pending. This is the only source of truth, so the node has no database, and a restart re-scans logs and safely picks up exactly the unanswered requests. A request is never answered twice.
 - **Answer.** Generate the proof, send `fulfillRandomWords`, wait for the receipt.
@@ -70,7 +70,7 @@ The node (`node/src/oracle.ts`) is a single loop:
 - **Balance check.** Every 10 minutes, alerts when the transaction key's balance drops below `MIN_BALANCE_USDC`.
 - **Supervisor.** `node/src/start.ts` validates the configuration up front (bad keys fail immediately), then restarts the loop 5 s after any crash, alerting each time.
 - **Health.** `GET 127.0.0.1:8080` returns JSON: `node` (`ok` or `stale`, stale after three `POLL_MS` without a scan, at least 30 s), last poll time, chain head, pending count, last fulfilment, gas balance, last error. It answers 503 when stale. Docker's healthcheck uses it.
-- **RPC.** Alchemy only (`RPC_URL`), no public RPCs. Rate limits (HTTP 429) back off and retry. `RPC_URL` may list several URLs (e.g. two Alchemy apps); viem's fallback transport prefers the first. The dashboard reaches Alchemy through its own server-side `/api/rpc` proxy, so the key stays off the browser.
+- **RPC.** Arc's public RPCs, hard-coded in `packages/sdk/src/chains.ts` (publicnode, Blockdaemon, Circle (`rpc.testnet.arc.io`), QuickNode, dRPC). Each call goes to the first and fails over to the next on any error, including rate limits. The dashboard reaches them through its own server-side `/api/rpc` proxy, which also fails over, rests an RPC that errors for 30 s, and answers logs from an in-memory index so visitors don't multiply the load.
 - **Alerts** go to a Discord or Slack webhook (`node/src/alert.ts`). Each alert kind is sent at most once every 30 minutes, so a long outage produces one message.
 
 Exactly one node may run per proving key. Two would race to answer the same requests, and the loser pays gas for a reverted transaction.

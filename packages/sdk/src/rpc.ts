@@ -35,8 +35,8 @@ export async function retryRateLimited<T>(
   }
 }
 
-/** RPC_URL is normally one Alchemy URL. It may list several, comma-separated: requests go to the
- * first and fall back to the next when one errors (e.g. two Alchemy apps). */
+/** A comma-separated RPC list (the optional RPC_URL override): requests go to the first and fall back
+ * to the next when one errors. */
 export function parseRpcUrls(rpcUrl: string): string[] {
   const urls = rpcUrl.split(',').map((u) => u.trim()).filter(Boolean)
   if (urls.length === 0) throw new Error('RPC_URL is empty')

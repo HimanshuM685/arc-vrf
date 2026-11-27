@@ -1,5 +1,6 @@
-// Usage: RPC_URL=... DEPLOYER_KEY=0x... VRF_PROVING_KEY=0x... pnpm --filter @arc-vrf/node deploy-contracts
+// Usage: [RPC_URL=...] DEPLOYER_KEY=0x... VRF_PROVING_KEY=0x... pnpm --filter @arc-vrf/node deploy-contracts
 // (or VRF_PUBLIC_KEY=x,y instead of VRF_PROVING_KEY, so the deployer never sees the secret key)
+import { arcTestnet } from '@arc-vrf/sdk'
 import { parseEther, type Hex } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { deploy } from '../src/deploy.ts'
@@ -15,7 +16,7 @@ const pk = env.VRF_PUBLIC_KEY
 if (!pk) throw new Error('set VRF_PUBLIC_KEY=x,y or VRF_PROVING_KEY')
 
 await deploy({
-  rpcUrl: env.RPC_URL ?? 'http://127.0.0.1:8545',
+  rpcUrl: env.RPC_URL || arcTestnet.rpcUrls.default.http.join(','), // default: Arc Testnet public RPCs
   deployer: privateKeyToAccount(env.DEPLOYER_KEY as Hex),
   provingKey: pk,
   maxGasPriceGwei: Number(env.MAX_GAS_PRICE_GWEI ?? 500),

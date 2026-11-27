@@ -1,5 +1,5 @@
 // Starts the Arc VRF node from env vars (see .env.example). Used by the CLI (src/index.ts).
-import { getDeployment } from '@arc-vrf/sdk'
+import { ARC_LOG_HISTORY_BLOCKS, arcTestnet, getDeployment } from '@arc-vrf/sdk'
 import { createPublicClient, parseEther, type Address, type Hex } from 'viem'
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
 import { createServer } from 'node:http'
@@ -38,7 +38,8 @@ async function startOnce(
   status: NodeStatus,
   signal?: AbortSignal,
 ) {
-  const rpcUrl = process.env.RPC_URL ?? 'http://127.0.0.1:8545'
+  // Arc Testnet's public RPCs, hard-coded in the SDK, with failover. RPC_URL only overrides them (local anvil).
+  const rpcUrl = process.env.RPC_URL || arcTestnet.rpcUrls.default.http.join(',')
   const chainId = await createPublicClient({ transport: rpcTransport(rpcUrl) }).getChainId()
   const deployment = getDeployment(chainId)
   // `||` not `??`: docker-compose passes an empty string when the override is unset.
@@ -47,7 +48,7 @@ async function startOnce(
 
   await runOracle({
     rpcUrl,
-    wsUrl: process.env.RPC_WS_URL || undefined, // empty (docker-compose default) = derive from RPC_URL
+    wsUrl: process.env.RPC_WS_URL || undefined, // optional override; default: the chain's WebSocket list
     chainId,
     coordinator,
     provingKey: keys.provingKey,
@@ -58,6 +59,8 @@ async function startOnce(
         ? BigInt(deployment.deployBlock)
         : undefined,
     pollMs: keys.pollMs,
+    // Public RPCs prune old logs; a custom RPC_URL (anvil, an archive node) can read everything.
+    maxHistoryBlocks: process.env.RPC_URL ? undefined : ARC_LOG_HISTORY_BLOCKS,
     minBalanceWei: parseEther(process.env.MIN_BALANCE_USDC ?? '1'),
     signal,
     status,

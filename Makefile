@@ -13,7 +13,7 @@ install: ## Install JS dependencies
 keys: ## Create .env with fresh keys and print the addresses to fund
 	pnpm --filter @arc-vrf/node new-keys
 
-deploy-contracts: ## Deploy contracts to the chain in RPC_URL using .env (needs Foundry)
+deploy-contracts: ## Deploy contracts to Arc Testnet (or RPC_URL if set) using .env (needs Foundry)
 	@command -v forge >/dev/null || { echo "forge not found. Install Foundry: curl -L https://foundry.paradigm.xyz | bash && ~/.foundry/bin/foundryup"; exit 1; }
 	@[ -f contracts/lib/forge-std/src/Test.sol ] || git submodule update --init --recursive
 	cd contracts && forge build

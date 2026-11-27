@@ -235,7 +235,7 @@ test('blockRangeLimit reads the Alchemy Free-tier refusal', async () => {
   assert.equal(blockRangeLimit('One of the blocks specified in filter cannot be found.'), undefined)
 })
 
-test('a Free-tier key fails fast with a fix, and is not retried for a minute', async () => {
+test('an RPC that only serves tiny log ranges fails fast, and is not retried for a minute', async () => {
   let t = 0
   const seen: string[] = []
   const fetch = (async (_url: string, init: { body: string }) => {
@@ -253,12 +253,56 @@ test('a Free-tier key fails fast with a fix, and is not retried for a minute', a
   const p = createRpcProxy({ upstream: 'http://alchemy', allowed: [COORD], startBlock: 0, fetch, now: () => t })
   const get = () => p({ jsonrpc: '2.0', id: 1, method: 'eth_getLogs', params: [{ address: COORD, fromBlock: '0x0', toBlock: 'latest' }] })
 
-  await assert.rejects(get(), (e: unknown) => e instanceof UpstreamError && /Pay As You Go/.test(e.message))
+  await assert.rejects(get(), (e: unknown) => e instanceof UpstreamError && /refused 10,000-block/.test(e.message))
   const calls = seen.length
   t += 30_000 // past the normal 5 s sync gap, inside the minute
-  await assert.rejects(get(), /Pay As You Go/)
+  await assert.rejects(get(), /refused 10,000-block/)
   assert.equal(seen.length, calls, 'no upstream call within the minute')
   t += 31_000
-  await assert.rejects(get(), /Pay As You Go/)
+  await assert.rejects(get(), /refused 10,000-block/)
   assert.ok(seen.length > calls, 'tries again after a minute')
+})
+
+test('failover: a failing or rate-limited RPC is skipped for a while; reverts are real answers', async () => {
+  let t = 0
+  const hits: string[] = []
+  const fetch = (async (url: string, init: { body: string }) => {
+    hits.push(url)
+    const calls = JSON.parse(init.body) as { id: number; method: string }[]
+    if (url === 'a') return new Response('busy', { status: 429 })
+    if (url === 'b' && calls.some((c) => c.method === 'eth_getLogs'))
+      return Response.json(calls.map((c) => ({ jsonrpc: '2.0', id: c.id, error: { code: -32012, message: 'requested range too large' } })))
+    return Response.json(
+      calls.map((c) =>
+        c.method === 'eth_call'
+          ? { jsonrpc: '2.0', id: c.id, error: { code: 3, message: 'execution reverted' } }
+          : { jsonrpc: '2.0', id: c.id, result: c.method === 'eth_getLogs' ? [] : '0x64' },
+      ),
+    )
+  }) as unknown as typeof globalThis.fetch
+  const p = createRpcProxy({ upstream: ['a', 'b', 'c'], allowed: [COORD], startBlock: 0, fetch, now: () => t })
+
+  // eth_call: a (429) is skipped, b answers with a revert, which is returned as is.
+  const r = (await p({ id: 1, method: 'eth_call', params: [{ to: COORD, data: '0x' }, 'latest'] })) as RpcReply
+  assert.equal(r.error?.message, 'execution reverted')
+  assert.deepEqual(hits, ['a', 'b'])
+
+  // Index read: b answers eth_blockNumber but refuses the log range, so c serves it. a is still
+  // resting, so it is not asked.
+  hits.length = 0
+  assert.deepEqual(await logsOf(p, { address: COORD, fromBlock: '0x0' }), [])
+  assert.deepEqual(hits, ['b', 'b', 'c'])
+
+  // After the rest period, a is first again.
+  t = 31_000
+  hits.length = 0
+  await p({ id: 2, method: 'eth_chainId' })
+  assert.equal(hits[0], 'a')
+})
+
+test('historyBlocks: the index never reads logs older than the window', async () => {
+  const up = fakeChain({ head: 100_000, logs: [{ address: COORD, topics: [T_REQ], block: 5 }, { address: COORD, topics: [T_REQ], block: 99_000 }] })
+  const p = createRpcProxy({ upstream: 'u', allowed: [COORD], startBlock: 0, historyBlocks: 10_000n, fetch: up.fetch, now: () => 0 })
+  assert.deepEqual((await logsOf(p, { address: COORD, fromBlock: '0x0' })).map((l) => Number(l.blockNumber)), [99_000])
+  assert.ok(up.seen.filter((m) => m === 'eth_getLogs').length <= 2, 'one window, not the whole chain')
 })

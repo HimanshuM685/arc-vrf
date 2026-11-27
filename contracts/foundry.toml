@@ -11,9 +11,9 @@ optimizer_runs = 500
 # with the TypeScript prover (node/src/cli/prove.ts).
 
 [rpc_endpoints]
-# Alchemy only (no public RPCs): `forge ... --rpc-url arc_testnet` reads these from the environment.
-arc_testnet = "${RPC_URL}"
-arc_mainnet = "${ARC_MAINNET_RPC_URL}"
+# Arc's public RPCs (the first of the list in packages/sdk/src/chains.ts).
+arc_testnet = "https://arc-testnet-rpc.publicnode.com"
+arc_mainnet = "https://rpc.mainnet.arc.io"
 anvil = "http://127.0.0.1:8545"
 
 [lint]

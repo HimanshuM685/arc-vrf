@@ -27,4 +27,4 @@ Fund these with Arc USDC (testnet: https://faucet.circle.com):
   node      ${privateKeyToAddress(keys.NODE_TX_KEY)}   ~1 USDC
 
 Do not fund the proving key.
-Next: put your Alchemy URLs in .env (RPC_URL, ARC_TESTNET_RPC_URL), then make deploy-contracts`)
+Next: make deploy-contracts (deploys to Arc Testnet over its public RPCs)`)

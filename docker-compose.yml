@@ -1,7 +1,7 @@
 # Arc VRF production stack: `make up` (or `docker compose up -d --build`).
 # Values come from .env next to this file. Only the variables listed per service enter that
-# container: the website never sees a signing key (only its Alchemy read URL), and DEPLOYER_KEY never
-# enters either container. Every chain call goes to Alchemy: there is no public RPC fallback.
+# container: the website never sees a signing key, and DEPLOYER_KEY never enters either container.
+# Both use Arc's public RPCs, hard-coded in packages/sdk/src/chains.ts, with failover: no RPC settings.
 
 x-logging: &logging
   driver: json-file
@@ -15,10 +15,6 @@ services:
       args:
         NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: ${NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID:-}
     image: arc-vrf:latest
-    environment:
-      # Server-side only: the browser reaches the chain through /api/rpc, which forwards here.
-      ARC_TESTNET_RPC_URL: ${ARC_TESTNET_RPC_URL:?set ARC_TESTNET_RPC_URL (your Alchemy Arc Testnet URL) in .env}
-      ARC_MAINNET_RPC_URL: ${ARC_MAINNET_RPC_URL:-}
     ports:
       # Empty WEB_BIND publishes on every interface, IPv4 and IPv6.
       - "${WEB_BIND:+${WEB_BIND}:}${WEB_PORT:-3000}:3000"
@@ -37,7 +33,6 @@ services:
     pull_policy: never # built by the web service above
     command: ["node", "vrf-node.mjs"]
     environment:
-      RPC_URL: ${RPC_URL:?set RPC_URL (your Alchemy Arc URL) in .env}
       VRF_PROVING_KEY: ${VRF_PROVING_KEY:?set VRF_PROVING_KEY in .env}
       NODE_TX_KEY: ${NODE_TX_KEY:?set NODE_TX_KEY in .env}
       # Optional overrides; empty means "use the deployment file for this chain".
@@ -46,7 +41,6 @@ services:
       ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
       MIN_BALANCE_USDC: ${MIN_BALANCE_USDC:-1}
       POLL_MS: ${POLL_MS:-30000}
-      RPC_WS_URL: ${RPC_WS_URL:-}
       HEALTH_PORT: "8080"
     depends_on: [web] # only so the shared image is built first
     deploy:

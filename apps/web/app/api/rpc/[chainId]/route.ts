@@ -1,15 +1,15 @@
-import { getDeployment } from '@arc-vrf/sdk'
+import { ARC_LOG_HISTORY_BLOCKS, chains, getDeployment } from '@arc-vrf/sdk'
 import { UpstreamError, createRpcProxy } from '@/lib/rpc-proxy'
 
-// The dashboard's only way to the chain: forwards a small set of read calls to Alchemy with the key kept
-// server-side (see lib/rpc-proxy.ts for the allowlists and caching). No public RPC fallback.
+// The dashboard's only way to the chain: forwards a small set of read calls to Arc's public RPCs (the
+// hard-coded list in the SDK), failing over in order. See lib/rpc-proxy.ts for the allowlists and caching.
 export const dynamic = 'force-dynamic'
 
 const MAX_BODY = 64 * 1024
 
-/** Server-only env, read per request so `docker compose up` picks up a changed .env without a rebuild. */
+/** Arc testnet and mainnet only: local anvil is reached directly by the browser. */
 const upstreamFor = (chainId: number) =>
-  ({ 5042002: process.env.ARC_TESTNET_RPC_URL, 5042: process.env.ARC_MAINNET_RPC_URL })[chainId] || undefined
+  chainId === 31337 ? undefined : chains.find((c) => c.id === chainId)?.rpcUrls.default.http
 
 const proxies = new Map<string, ReturnType<typeof createRpcProxy>>()
 
@@ -27,19 +27,19 @@ export async function POST(req: Request, { params }: { params: Promise<{ chainId
     return Response.json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }, { status: 400 })
   }
 
-  const key = `${chainId}:${upstream}`
+  const key = String(chainId)
   let proxy = proxies.get(key)
   if (!proxy) {
     const d = getDeployment(chainId)
     const allowed = d ? [d.coordinator, d.wrapper, d.blockhashStore, d.batchCoordinator] : []
-    proxy = createRpcProxy({ upstream, allowed, startBlock: d?.deployBlock ?? 0 })
+    proxy = createRpcProxy({ upstream, allowed, startBlock: d?.deployBlock ?? 0, historyBlocks: ARC_LOG_HISTORY_BLOCKS })
     proxies.set(key, proxy)
   }
 
   try {
     return Response.json(await proxy(body))
   } catch (e) {
-    // Pass Alchemy's status through (429 especially), never its URL: that holds the API key.
+    // Pass the RPC's status through (429 especially), never its URL.
     if (e instanceof UpstreamError) return Response.json({ error: e.message }, { status: e.status })
     return Response.json({ error: 'Arc RPC unreachable' }, { status: 502 })
   }

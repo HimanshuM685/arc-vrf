@@ -40,7 +40,7 @@ export async function connect(rpcUrl: string, account: Account, chainId?: number
   return { chain, publicClient, walletClient }
 }
 
-/** Default WebSocket URL: the first `RPC_URL` with http(s) -> ws(s). Alchemy and anvil serve both on one URL. */
+/** WebSocket URL for an RPC_URL override: the first URL with http(s) -> ws(s) (right for anvil). */
 export const defaultWsUrl = (rpcUrl: string) => parseRpcUrls(rpcUrl)[0]!.replace(/^http/, 'ws')
 
 /** Push-only client for eth_subscribe. viem's own reconnect is off: after a drop it would not
@@ -67,7 +67,7 @@ export const withRetry = <T>(label: string, fn: () => Promise<T>, attempts = 7, 
   retryRateLimited(fn, attempts, baseMs, (ms, i) => log(`${label}: RPC is rate limiting, retrying in ${ms / 1000}s (${i}/${attempts - 1})`))
 
 /** The eth_getLogs block range the provider says it allows, when it refused a wider one
- * (Alchemy Free tier: "up to a 10 block range ... this block range should work: [0xA, 0xB]"). */
+ * (e.g. Alchemy's free tier: "up to a 10 block range ... this block range should work: [0xA, 0xB]"). */
 export function blockRangeLimit(e: unknown): bigint | undefined {
   let text = ''
   for (let x = e as { message?: string; shortMessage?: string; details?: string; cause?: unknown } | undefined, i = 0; x && i < 10; x = x.cause as typeof x, i++)

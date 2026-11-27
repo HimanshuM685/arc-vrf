@@ -1,14 +1,17 @@
 // Server-side JSON-RPC proxy for the dashboard: the browser talks to /api/rpc/<chainId>, this forwards to
-// Alchemy with the key held server-side. Pure module (no Next imports) so it can be unit tested.
+// Arc's public RPCs (hard-coded list in the SDK), failing over in order. Pure module (no Next imports) so
+// it can be unit tested.
 //
-// Guard rails, so the proxy isn't a free Alchemy relay for anyone who finds it:
+// Guard rails, so the proxy isn't a free relay for anyone who finds it:
 //  - read methods only (writes go through the user's own wallet),
 //  - eth_call / eth_estimateGas / eth_getLogs only against this deployment's contracts,
 //  - batches of at most MAX_BATCH calls.
 //
-// Cost control (Alchemy bills per call):
+// Load control (public RPCs rate limit bursts):
+//  - Failover: each call goes to the first RPC that isn't resting; one that fails or rate limits rests
+//    for UPSTREAM_REST_MS, so it gets a break instead of more traffic.
 //  - Log index: every log of the deployment's contracts is held in memory and eth_getLogs is answered
-//    from it, whatever the filter. Alchemy sees at most one eth_blockNumber + one eth_getLogs per
+//    from it, whatever the filter. The RPCs see at most one eth_blockNumber + one eth_getLogs per
 //    SYNC_MS, and only while someone is using the dashboard. A backfill (cold start, long quiet spell)
 //    goes out as JSON-RPC batches of 10,000-block reads, so it costs a few round trips, not hundreds.
 //  - Everything else: identical calls in flight share one upstream request, results cached briefly
@@ -28,12 +31,15 @@ const SYNC_MS = 5_000
 /** Logs this far behind head are final in the index; newer ones are re-read every sync, in case the
  * backend node that answered was a block or two behind. */
 const SETTLED_BLOCKS = 64n
-/** Alchemy Pay As You Go: at most 10,000 blocks per eth_getLogs. */
+/** Blocks per eth_getLogs: publicnode and Blockdaemon (first in the list) serve 10,000. */
 const CHUNK = 10_000n
+/** How long an RPC that failed or rate limited is skipped. */
+const UPSTREAM_REST_MS = 30_000
+const RATE_LIMITED = /rate.?limit|too many requests/i
 /** After the upstream refused our log range (Free tier: 10 blocks), wait this long before trying again. */
 const RANGE_REFUSED_MS = 60_000
 
-/** The block range the provider says it allows, when it refused a wider eth_getLogs (Alchemy Free tier:
+/** The block range the provider says it allows, when it refused a wider eth_getLogs (e.g. Alchemy Free tier:
  * "up to a 10 block range"). Undefined for any other error. */
 export function blockRangeLimit(message: string): bigint | undefined {
   if (!/block range/i.test(message)) return undefined
@@ -58,7 +64,7 @@ const METHODS = new Set([
   'eth_feeHistory',
 ])
 
-/** Thrown when Alchemy itself answers with a non-2xx status (e.g. 429). The route passes the status
+/** Thrown when the RPC itself answers with a non-2xx status (e.g. 429). The route passes the status
  * through, so the browser's viem client sees a real HTTP 429 and its rate-limit handling kicks in. */
 export class UpstreamError extends Error {
   readonly status: number
@@ -116,11 +122,14 @@ export function filterLogs(logs: RawLog[], f: LogFilter, head: bigint): RawLog[]
 type Entry = { result: unknown; expires: number }
 
 export function createRpcProxy(o: {
-  upstream: string
+  /** RPC URL, or several tried in order. */
+  upstream: string | readonly string[]
   /** Contract addresses eth_call / eth_getLogs may target (any case). Their logs are indexed. */
   allowed: string[]
   /** Deployment block: where the log index starts. */
   startBlock: number
+  /** Index at most this many blocks back from head (public RPCs prune older logs). */
+  historyBlocks?: bigint
   fetch?: typeof fetch
   now?: () => number
   maxEntries?: number
@@ -132,9 +141,31 @@ export function createRpcProxy(o: {
   const cache = new Map<string, Entry>()
   const inflight = new Map<string, Promise<RpcReply>>()
 
-  /** One upstream batch for the given calls. */
-  async function sendUpstream(calls: { method: string; params: unknown[] }[]): Promise<RpcReply[]> {
-    const res = await doFetch(o.upstream, {
+  const upstreams: readonly string[] = typeof o.upstream === "string" ? [o.upstream] : o.upstream
+  const restUntil = new Map<string, number>()
+
+  /** One batch to the first RPC that isn't resting, failing over to the next on a network or HTTP error,
+   * a bad body, or a rate-limited answer. `strict` (index reads): any per-call error fails over too, e.g.
+   * a range that RPC won't serve. Otherwise per-call errors (an eth_call revert) are real answers. */
+  async function sendUpstream(calls: { method: string; params: unknown[] }[], strict = false): Promise<RpcReply[]> {
+    const awake = upstreams.filter((u) => (restUntil.get(u) ?? 0) <= now())
+    let lastError: unknown
+    for (const u of awake.length ? awake : upstreams) {
+      try {
+        const replies = await sendTo(u, calls)
+        const bad = replies.find((r) => r.error && (strict || RATE_LIMITED.test(r.error.message)))
+        if (bad) throw new UpstreamError(RATE_LIMITED.test(bad.error!.message) ? 429 : 502, bad.error!.message)
+        return replies
+      } catch (e) {
+        lastError = e
+        if (upstreams.length > 1) restUntil.set(u, now() + UPSTREAM_REST_MS)
+      }
+    }
+    throw lastError
+  }
+
+  async function sendTo(url: string, calls: { method: string; params: unknown[] }[]): Promise<RpcReply[]> {
+    const res = await doFetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(calls.map((c, i) => ({ jsonrpc: '2.0', id: i, method: c.method, params: c.params }))),
@@ -148,8 +179,7 @@ export function createRpcProxy(o: {
 
   /** One upstream call; a JSON-RPC error becomes an UpstreamError. */
   async function call1(method: string, params: unknown[]): Promise<unknown> {
-    const [r] = await sendUpstream([{ method, params }])
-    if (r!.error) throw new UpstreamError(502, r!.error.message)
+    const [r] = await sendUpstream([{ method, params }], true)
     return r!.result
   }
 
@@ -169,7 +199,7 @@ export function createRpcProxy(o: {
 
   /** Brings the index up to head, at most once per `minGapMs`. Concurrent callers share one sync. A
    * failed sync keeps serving the last good index (and waits before trying again, so a rate-limited
-   * Alchemy isn't hammered); only a first sync that fails surfaces the error. */
+   * RPC isn't hammered); only a first sync that fails surfaces the error. */
   function sync(minGapMs = SYNC_MS): Promise<void> {
     if (syncing) return syncing
     if (now() - lastSync < Math.max(minGapMs, nextGapMs)) return head !== undefined ? Promise.resolve() : Promise.reject(lastError)
@@ -179,6 +209,8 @@ export function createRpcProxy(o: {
         // A load-balanced backend that is behind: keep the index we have rather than move head back.
         if (head !== undefined && h < head) return
         const settled = h - SETTLED_BLOCKS
+        // Older logs are pruned on the public RPCs: start (or, after a long quiet spell, resume) inside the window.
+        if (o.historyBlocks !== undefined && settledTo < h - o.historyBlocks) settledTo = h - o.historyBlocks
         // Backfill (first sync, or after a long quiet spell): full chunks, MAX_BATCH per round trip. A batch
         // is applied only if every read in it succeeded, so settledTo never skips a failed range.
         while (settled - settledTo >= CHUNK) {
@@ -186,9 +218,7 @@ export function createRpcProxy(o: {
           const batch = Array.from({ length: Number(n < BigInt(MAX_BATCH) ? n : BigInt(MAX_BATCH)) }, (_, i) =>
             logsFilter(settledTo + 1n + BigInt(i) * CHUNK, settledTo + BigInt(i + 1) * CHUNK),
           )
-          const replies = await sendUpstream(batch)
-          const bad = replies.find((r) => r.error)
-          if (bad) throw new UpstreamError(502, bad.error!.message)
+          const replies = await sendUpstream(batch, true)
           for (const r of replies) settledLogs.push(...(r.result as RawLog[]))
           settledTo += BigInt(batch.length) * CHUNK
         }
@@ -205,11 +235,11 @@ export function createRpcProxy(o: {
         head = h
         nextGapMs = 0
       } catch (e) {
-        // The index needs wide log reads (10,000 blocks each). Indexing from the deploy block 10 blocks at a
-        // time is thousands of calls and trips Free tier's throughput limit, so say what to fix instead.
+        // The index needs wide log reads (10,000 blocks each). Indexing from the deploy block a few blocks at
+        // a time is thousands of calls and trips rate limits, so back off and say so instead.
         const lim = e instanceof UpstreamError ? blockRangeLimit(e.message) : undefined
         if (lim !== undefined) {
-          e = new UpstreamError(503, `Dashboard RPC limits eth_getLogs to ${lim} blocks (Alchemy Free tier?): put its Alchemy app on Pay As You Go`)
+          e = new UpstreamError(503, `Every dashboard RPC refused 10,000-block eth_getLogs (one allows ${lim}); retrying in a minute`)
           nextGapMs = RANGE_REFUSED_MS
         }
         lastError = e
@@ -295,7 +325,7 @@ export function createRpcProxy(o: {
     return Promise.all(out)
   }
 
-  /** Handles a parsed JSON-RPC body: one call or a batch. Throws UpstreamError when Alchemy fails. */
+  /** Handles a parsed JSON-RPC body: one call or a batch. Throws UpstreamError when every RPC fails. */
   return async function handle(body: unknown): Promise<RpcReply | RpcReply[]> {
     if (Array.isArray(body)) {
       if (body.length === 0 || body.length > MAX_BATCH) return fail(null, -32600, `Batches must hold 1 to ${MAX_BATCH} calls`)

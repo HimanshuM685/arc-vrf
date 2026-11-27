@@ -9,9 +9,10 @@
 // Cost control (Alchemy bills per call):
 //  - Log index: every log of the deployment's contracts is held in memory and eth_getLogs is answered
 //    from it, whatever the filter. Alchemy sees at most one eth_blockNumber + one eth_getLogs per
-//    SYNC_MS, and only while someone is using the dashboard. eth_blockNumber is answered from the index
-//    head too, so browsers never ask for blocks the index hasn't read.
-//  - Everything else: identical calls in flight share one upstream request, results cached SHORT_TTL_MS.
+//    SYNC_MS, and only while someone is using the dashboard. A backfill (cold start, long quiet spell)
+//    goes out as JSON-RPC batches of 10,000-block reads, so it costs a few round trips, not hundreds.
+//  - Everything else: identical calls in flight share one upstream request, results cached briefly
+//    (eth_blockNumber for BLOCK_TTL_MS, so wallets see new blocks and receipts promptly).
 // ponytail: index and cache are per process; move them to Redis or an indexer if the web service runs as
 // several copies or mainnet log volume outgrows memory.
 
@@ -22,6 +23,7 @@ type LogFilter = { address?: unknown; topics?: unknown[]; fromBlock?: unknown; t
 
 export const MAX_BATCH = 50
 const SHORT_TTL_MS = 5_000
+const BLOCK_TTL_MS = 1_000
 const SYNC_MS = 5_000
 /** Logs this far behind head are final in the index; newer ones are re-read every sync, in case the
  * backend node that answered was a block or two behind. */
@@ -149,23 +151,33 @@ export function createRpcProxy(o: {
   let lastError: unknown
   let syncing: Promise<void> | undefined
 
-  const getLogs = (from: bigint, to: bigint) => call1('eth_getLogs', [{ address: addresses, fromBlock: hex(from), toBlock: hex(to) }]) as Promise<RawLog[]>
+  const logsFilter = (from: bigint, to: bigint) => ({ method: 'eth_getLogs', params: [{ address: addresses, fromBlock: hex(from), toBlock: hex(to) }] })
+  const getLogs = (from: bigint, to: bigint) => call1('eth_getLogs', logsFilter(from, to).params) as Promise<RawLog[]>
 
-  /** Brings the index up to head, at most once per SYNC_MS. Concurrent callers share one sync. A failed
-   * sync keeps serving the last good index (and waits SYNC_MS before trying again, so a rate-limited
+  /** Brings the index up to head, at most once per `minGapMs`. Concurrent callers share one sync. A
+   * failed sync keeps serving the last good index (and waits before trying again, so a rate-limited
    * Alchemy isn't hammered); only a first sync that fails surfaces the error. */
-  function sync(): Promise<void> {
+  function sync(minGapMs = SYNC_MS): Promise<void> {
     if (syncing) return syncing
-    if (now() - lastSync < SYNC_MS) return head !== undefined ? Promise.resolve() : Promise.reject(lastError)
+    if (now() - lastSync < minGapMs) return head !== undefined ? Promise.resolve() : Promise.reject(lastError)
     syncing = (async () => {
       try {
         const h = BigInt((await call1('eth_blockNumber', [])) as string)
+        // A load-balanced backend that is behind: keep the index we have rather than move head back.
+        if (head !== undefined && h < head) return
         const settled = h - SETTLED_BLOCKS
-        // Backfill (first sync, or after a long quiet spell) in full chunks, then whatever keeps the
-        // final tail read within one chunk.
+        // Backfill (first sync, or after a long quiet spell): full chunks, MAX_BATCH per round trip. A batch
+        // is applied only if every read in it succeeded, so settledTo never skips a failed range.
         while (settled - settledTo >= CHUNK) {
-          settledLogs.push(...(await getLogs(settledTo + 1n, settledTo + CHUNK)))
-          settledTo += CHUNK
+          const n = (settled - settledTo) / CHUNK
+          const batch = Array.from({ length: Number(n < BigInt(MAX_BATCH) ? n : BigInt(MAX_BATCH)) }, (_, i) =>
+            logsFilter(settledTo + 1n + BigInt(i) * CHUNK, settledTo + BigInt(i + 1) * CHUNK),
+          )
+          const replies = await sendUpstream(batch)
+          const bad = replies.find((r) => r.error)
+          if (bad) throw new UpstreamError(502, bad.error!.message)
+          for (const r of replies) settledLogs.push(...(r.result as RawLog[]))
+          settledTo += BigInt(batch.length) * CHUNK
         }
         if (h - settledTo > CHUNK) {
           settledLogs.push(...(await getLogs(settledTo + 1n, settled)))
@@ -189,17 +201,25 @@ export function createRpcProxy(o: {
     return syncing
   }
 
-  async function fromIndex(method: string, params: unknown[]): Promise<unknown> {
-    await sync()
-    if (method === 'eth_blockNumber') return hex(head!)
-    return filterLogs([...settledLogs, ...recent], (params[0] ?? {}) as LogFilter, head!)
+  async function fromIndex(params: unknown[]): Promise<unknown> {
+    const f = (params[0] ?? {}) as LogFilter
+    const want = typeof f.toBlock === 'string' && f.toBlock.startsWith('0x') ? BigInt(f.toBlock) : undefined
+    // The browser's block number is fresher than the index: catch up (at most once a second) first.
+    await sync(want !== undefined && head !== undefined && want > head ? BLOCK_TTL_MS : SYNC_MS)
+    // Still well short of what was asked (sync failing): an error, never a silently incomplete answer,
+    // which the browser would cache as final.
+    if (want !== undefined && want > head! + SETTLED_BLOCKS / 2n) throw new UpstreamError(503, 'Log index is behind the chain, retry shortly')
+    // A failed sync can leave recent logs that a backfill already moved into settledLogs.
+    const fresh = recent.filter((l) => BigInt(l.blockNumber) > settledTo)
+    return filterLogs([...settledLogs, ...fresh], f, head!)
   }
 
   // ---- Everything else: shared, briefly cached upstream calls ----
-  const store = (key: string, reply: RpcReply) => {
-    if (reply.error) return
+  const store = (key: string, method: string, reply: RpcReply) => {
+    // null = not mined / not found yet: don't make a wallet wait SHORT_TTL_MS to see its receipt.
+    if (reply.error || reply.result === null) return
     cache.delete(key) // re-insert at the end: Map order is the eviction order
-    cache.set(key, { result: reply.result, expires: now() + SHORT_TTL_MS })
+    cache.set(key, { result: reply.result, expires: now() + (method === 'eth_blockNumber' ? BLOCK_TTL_MS : SHORT_TTL_MS) })
     for (const k of cache.keys()) {
       if (cache.size <= maxEntries) break
       cache.delete(k)
@@ -217,10 +237,10 @@ export function createRpcProxy(o: {
       }
       const method = call.method as string
       const params = (call.params ?? []) as unknown[]
-      // No deployment on this chain: no index (an empty address list would fetch every log on the chain).
-      // eth_getLogs was already rejected above in that case; eth_blockNumber falls through to the cache.
-      if (addresses.length > 0 && (method === 'eth_getLogs' || method === 'eth_blockNumber')) {
-        out.push(fromIndex(method, params).then((result) => ({ jsonrpc: '2.0', id: call.id ?? null, result })))
+      // No deployment on this chain: no index (an empty address list would fetch every log on the chain),
+      // and eth_getLogs was already rejected above.
+      if (addresses.length > 0 && method === 'eth_getLogs') {
+        out.push(fromIndex(params).then((result) => ({ jsonrpc: '2.0', id: call.id ?? null, result })))
         continue
       }
       const key = `${method}:${JSON.stringify(params)}`
@@ -244,7 +264,7 @@ export function createRpcProxy(o: {
       try {
         const replies = await sendUpstream(misses)
         misses.forEach((m, i) => {
-          store(m.key, replies[i]!)
+          store(m.key, m.method, replies[i]!)
           m.resolve(replies[i]!)
         })
       } catch (e) {

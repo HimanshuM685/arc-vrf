@@ -119,9 +119,74 @@ test('log index: backfills in 10k chunks, then answers any filter from memory', 
   assert.deepEqual(results[1]!.map((l) => Number(l.blockNumber)), [5])
   // blockNumber + 2 full chunks [0,9999] [10000,19999] + tail [20000, 25100] (fits one chunk)
   assert.deepEqual(up.seen, ['eth_blockNumber', 'eth_getLogs', 'eth_getLogs', 'eth_getLogs'])
-  const bn = (await proxy({ id: 9, method: 'eth_blockNumber' })) as RpcReply
-  assert.equal(bn.result, hex(25_100), 'blockNumber comes from the index head')
+  await logsOf(proxy, { address: COORD, fromBlock: '0x0' })
   assert.equal(up.seen.length, 4, 'still within SYNC_MS: no new upstream calls')
+})
+
+test('backfill chunks go out as one batch', async () => {
+  const up = fakeChain({ head: 35_000 })
+  const batches: number[] = []
+  const fetch = ((url: string, init: { body: string }) => {
+    batches.push((JSON.parse(init.body) as unknown[]).length)
+    return up.fetch(url, init as RequestInit)
+  }) as unknown as typeof globalThis.fetch
+  const proxy = createRpcProxy({ upstream: 'u', allowed: [COORD], startBlock: 0, fetch, now: () => 0 })
+  await logsOf(proxy, { address: COORD, fromBlock: '0x0' })
+  assert.deepEqual(batches, [1, 3, 1], 'blockNumber, three 10k chunks in one round trip, tail')
+})
+
+test('a sync that fails after backfilling never returns a log twice', async () => {
+  let failGetLogsAfter = Infinity
+  const up = fakeChain({ head: 1_000, logs: [{ address: COORD, topics: [T_REQ], block: 990 }] })
+  let n = 0
+  const fetch = ((url: string, init: { body: string }) => {
+    const calls = JSON.parse(init.body) as { method: string }[]
+    if (calls.some((c) => c.method === 'eth_getLogs') && calls.length === 1 && n++ >= failGetLogsAfter)
+      return Promise.resolve(new Response('limited', { status: 429 }))
+    return up.fetch(url, init as RequestInit)
+  }) as unknown as typeof globalThis.fetch
+  let t = 0
+  const proxy = createRpcProxy({ upstream: 'u', allowed: [COORD], startBlock: 0, fetch, now: () => t })
+  assert.equal((await logsOf(proxy, { address: COORD, fromBlock: '0x0' })).length, 1) // 990 is "recent"
+  // Long quiet spell: the backfill batch (which re-reads block 990 into settled) succeeds, the tail read fails.
+  up.chain.head = 30_000
+  failGetLogsAfter = n
+  t = 60_000
+  const logs = await logsOf(proxy, { address: COORD, fromBlock: '0x0', toBlock: hex(1_000) })
+  assert.deepEqual(logs.map((l) => Number(l.blockNumber)), [990])
+})
+
+test('a lagging blockNumber never moves the index back; asking past the index is an error, not a gap', async () => {
+  let lag = false
+  const up = fakeChain({ head: 1_000, logs: [{ address: COORD, topics: [T_REQ], block: 995 }] })
+  const fetch = ((url: string, init: { body: string }) => {
+    const calls = JSON.parse(init.body) as { method: string }[]
+    if (lag && calls[0]!.method === 'eth_blockNumber') {
+      return Promise.resolve(Response.json([{ jsonrpc: '2.0', id: 0, result: hex(990) }]))
+    }
+    return up.fetch(url, init as RequestInit)
+  }) as unknown as typeof globalThis.fetch
+  let t = 0
+  const proxy = createRpcProxy({ upstream: 'u', allowed: [COORD], startBlock: 0, fetch, now: () => t })
+  assert.equal((await logsOf(proxy, { address: COORD, fromBlock: '0x0' })).length, 1)
+  lag = true
+  t = 6_000
+  assert.equal((await logsOf(proxy, { address: COORD, fromBlock: '0x0' })).length, 1, 'block 995 still there')
+  t = 12_000
+  await assert.rejects(
+    proxy({ id: 1, method: 'eth_getLogs', params: [{ address: COORD, fromBlock: '0x0', toBlock: hex(2_000) }] }),
+    (e) => e instanceof UpstreamError && e.status === 503,
+  )
+})
+
+test('eth_blockNumber goes upstream and is cached only briefly', async () => {
+  const up = fakeChain({ head: 1 })
+  let t = 0
+  const proxy = createRpcProxy({ upstream: 'u', allowed: [COORD], startBlock: 0, fetch: up.fetch, now: () => t })
+  await proxy({ id: 1, method: 'eth_blockNumber' })
+  t = 1_500
+  await proxy({ id: 2, method: 'eth_blockNumber' })
+  assert.deepEqual(up.seen, ['eth_blockNumber', 'eth_blockNumber'])
 })
 
 test('log index: later syncs only read the unsettled tail; a lagging answer is re-read', async () => {

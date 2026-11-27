@@ -14,7 +14,7 @@ const env = (k: string) => {
 }
 
 /** Validates everything that can be wrong in config, before any network call or retry. */
-function loadKeys(): { provingKey: bigint; txAccount: PrivateKeyAccount } {
+function loadConfig(): { provingKey: bigint; txAccount: PrivateKeyAccount; pollMs: number } {
   const rawVrf = env('VRF_PROVING_KEY')
   let provingKey: bigint
   try {
@@ -24,11 +24,17 @@ function loadKeys(): { provingKey: bigint; txAccount: PrivateKeyAccount } {
   }
   const rawTx = env('NODE_TX_KEY')
   if (!/^0x[0-9a-fA-F]{64}$/.test(rawTx)) throw new Error('NODE_TX_KEY must be 0x followed by 64 hex characters')
-  return { provingKey, txAccount: privateKeyToAccount(rawTx as Hex) }
+  // Requests arrive over WebSocket; POLL_MS is only the safety scan, so the default is slow.
+  // `||`: docker-compose passes an empty string when unset. A typo (e.g. "30s") must not become NaN,
+  // which would make the scan loop run back-to-back.
+  const rawPoll = process.env.POLL_MS || '30000'
+  const pollMs = Number(rawPoll)
+  if (!Number.isFinite(pollMs) || pollMs < 100) throw new Error(`POLL_MS must be a number of milliseconds, at least 100 (got "${rawPoll}")`)
+  return { provingKey, txAccount: privateKeyToAccount(rawTx as Hex), pollMs }
 }
 
 async function startOnce(
-  keys: ReturnType<typeof loadKeys>,
+  keys: ReturnType<typeof loadConfig>,
   status: NodeStatus,
   signal?: AbortSignal,
 ) {
@@ -51,7 +57,7 @@ async function startOnce(
       : deployment
         ? BigInt(deployment.deployBlock)
         : undefined,
-    pollMs: pollMs(),
+    pollMs: keys.pollMs,
     minBalanceWei: parseEther(process.env.MIN_BALANCE_USDC ?? '1'),
     signal,
     status,
@@ -61,9 +67,10 @@ async function startOnce(
 /** Runs the node until `signal` aborts. Config errors throw immediately. Runtime and startup
  * failures (RPC down, key not registered yet) are logged and retried every 5 s. */
 export async function startFromEnv(signal?: AbortSignal) {
-  const keys = loadKeys()
+  const keys = loadConfig()
   const status: NodeStatus = { pending: 0 }
-  if (process.env.HEALTH_PORT) serveHealth(Number(process.env.HEALTH_PORT), status)
+  // lastPollAt moves on every successful scan, so allow three missed scans before "stale".
+  if (process.env.HEALTH_PORT) serveHealth(Number(process.env.HEALTH_PORT), status, Math.max(30_000, 3 * keys.pollMs))
   while (!signal?.aborted) {
     try {
       await startOnce(keys, status, signal)
@@ -76,17 +83,12 @@ export async function startFromEnv(signal?: AbortSignal) {
   }
 }
 
-// Requests arrive over WebSocket; POLL_MS is only the safety scan, so the default is slow.
-const pollMs = () => Number(process.env.POLL_MS || 30_000)
-// lastPollAt moves on every scan (and WS event), so allow three missed scans before "stale".
-const STALE_MS = Math.max(30_000, 3 * pollMs())
-
 /** GET anything -> node status JSON; 503 when the node hasn't polled recently. No secrets.
  * Bound to loopback: the only client is the container's own HEALTHCHECK. A listen failure
  * (port in use) is logged and the node keeps running without the endpoint. */
-function serveHealth(port: number, s: NodeStatus) {
+function serveHealth(port: number, s: NodeStatus, staleMs: number) {
   const server = createServer((_req, res) => {
-    const ok = !!s.lastPollAt && Date.now() - s.lastPollAt < STALE_MS
+    const ok = !!s.lastPollAt && Date.now() - s.lastPollAt < staleMs
     res.writeHead(ok ? 200 : 503, { 'content-type': 'application/json' })
     res.end(
       JSON.stringify({

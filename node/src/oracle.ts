@@ -122,8 +122,8 @@ export async function runOracle(o: OracleOptions) {
       eventName: 'RandomWordsRequested',
       args: { keyHash },
       onLogs: (logs) => {
+        // Not lastPollAt: health must reflect the HTTP scan, which fulfilment also depends on.
         for (const l of logs) add(l)
-        if (status) status.lastPollAt = Date.now()
         wsFails = 0
         wake()
       },
@@ -132,7 +132,7 @@ export async function runOracle(o: OracleOptions) {
         unwatch()
         if (Date.now() - since > 60_000) wsFails = 0 // a long-lived socket dropped: retry fast
         const ms = backoffMs(wsFails++)
-        log(`websocket ${redact(wsUrl)} error, resubscribing in ${ms / 1000}s (scanning every ${pollMs / 1000}s meanwhile): ${(e as Error).message.split('\n')[0]}`)
+        log(`websocket ${hostOf(wsUrl)} error, resubscribing in ${ms / 1000}s (scanning every ${pollMs / 1000}s meanwhile): ${(e as Error).message.split('\n')[0]}`)
         rewatch = setTimeout(() => {
           rewatch = undefined
           watch()
@@ -296,8 +296,14 @@ type RequestArgs = {
   sender?: Address
 }
 
-/** Alchemy URLs carry the API key in the path: never log it. */
-const redact = (url: string) => url.replace(/\/v2\/[^/?#]+/, '/v2/***')
+/** RPC URLs often carry an API key in the path or query (Alchemy, QuickNode, dRPC): log only the host. */
+const hostOf = (url: string) => {
+  try {
+    return new URL(url).host
+  } catch {
+    return '(invalid URL)'
+  }
+}
 
 const short = (n: bigint) => {
   const h = n.toString(16)

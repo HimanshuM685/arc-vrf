@@ -69,7 +69,7 @@ The node (`node/src/oracle.ts`) is a single loop:
 - **Balance check.** Alerts when the transaction key's balance drops below `MIN_BALANCE_USDC`.
 - **Supervisor.** `node/src/start.ts` validates the configuration up front (bad keys fail immediately), then restarts the loop 5 s after any crash, alerting each time.
 - **Health.** `GET 127.0.0.1:8080` returns JSON: `node` (`ok` or `stale`, stale after 30 s without a poll), last poll time, chain head, pending count, last fulfilment, gas balance, last error. It answers 503 when stale. Docker's healthcheck uses it.
-- **RPC failover.** `RPC_URL` may list several endpoints. viem's fallback transport prefers the first and moves on when one errors or rate-limits.
+- **RPC.** Alchemy only (`RPC_URL`), no public RPCs. Rate limits (HTTP 429) back off and retry. `RPC_URL` may list several URLs (e.g. two Alchemy apps); viem's fallback transport prefers the first. The dashboard reaches Alchemy through its own server-side `/api/rpc` proxy, so the key stays off the browser.
 - **Alerts** go to a Discord or Slack webhook (`node/src/alert.ts`). Each alert kind is sent at most once every 30 minutes, so a long outage produces one message.
 
 Exactly one node may run per proving key. Two would race to answer the same requests, and the loser pays gas for a reverted transaction.

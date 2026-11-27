@@ -50,7 +50,7 @@ async function startOnce(
       : deployment
         ? BigInt(deployment.deployBlock)
         : undefined,
-    pollMs: Number(process.env.POLL_MS ?? 500),
+    pollMs: Number(process.env.POLL_MS ?? 2_000),
     minBalanceWei: parseEther(process.env.MIN_BALANCE_USDC ?? '1'),
     signal,
     status,

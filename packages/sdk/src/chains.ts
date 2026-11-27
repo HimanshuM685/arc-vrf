@@ -9,13 +9,9 @@ export const arcTestnet = defineChain({
   nativeCurrency: usdc,
   rpcUrls: {
     default: {
-      // Public endpoints, tried in order. dRPC is last: its free plan caps getLogs at 100 blocks.
-      http: [
-        'https://rpc.testnet.arc.io',
-        'https://rpc.blockdaemon.testnet.arc.io',
-        'https://rpc.quicknode.testnet.arc.io',
-        'https://rpc.drpc.testnet.arc.io',
-      ],
+      // Network metadata only (viem's Chain type needs one; wallets show it when adding the network).
+      // Neither the node nor the dashboard sends traffic here: both use Alchemy (RPC_URL / ARC_TESTNET_RPC_URL).
+      http: ['https://rpc.testnet.arc.io'],
       webSocket: ['wss://rpc.testnet.arc.io'],
     },
   },

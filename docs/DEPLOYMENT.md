@@ -8,6 +8,7 @@ Set up Arc VRF from scratch and run it in production. For how it works, see [ARC
 - Node 22+ and pnpm 10
 - [Foundry](https://getfoundry.sh)
 - git
+- An [Alchemy](https://dashboard.alchemy.com) account on **Pay As You Go**, with two apps on Arc Testnet (one for the node, one for the dashboard). The free tier caps `eth_getLogs` at 10 blocks, too small for the node and dashboard scans. There is no public RPC fallback.
 - USDC for gas: ~2.5 for the deployer, ~1 for the node. Testnet faucet: https://faucet.circle.com
 
 ## 1. Install
@@ -28,7 +29,9 @@ Creates `.env` with three fresh keys and prints the deployer and node addresses.
 
 | Variable | Required | Default | What it does |
 |---|---|---|---|
-| `RPC_URL` | yes | `https://rpc.testnet.arc.io` | Arc RPC. Comma-separate several for failover; first is preferred. |
+| `RPC_URL` | yes | none | The node's Alchemy URL, `https://arc-testnet.g.alchemy.com/v2/<key>`. Also used by `make deploy-contracts`. |
+| `ARC_TESTNET_RPC_URL` | yes | none | The dashboard's Alchemy URL. Used server-side by its `/api/rpc` proxy, never sent to browsers. |
+| `ARC_MAINNET_RPC_URL` | no | empty | Same, for Arc mainnet once deployed there. |
 | `VRF_PROVING_KEY` | yes | set by `make keys` | Computes the randomness. Never fund it. Anyone holding it can predict results. |
 | `NODE_TX_KEY` | yes | set by `make keys` | Pays gas for answers (~0.005 USDC each). |
 | `DEPLOYER_KEY` | deploy only | set by `make keys` | Deploys and owns the contracts. Remove from `.env` after step 4. |
@@ -37,11 +40,9 @@ Creates `.env` with three fresh keys and prints the deployer and node addresses.
 | `WEB_PORT` | no | `3000` | Port the website is published on (also used without Docker). Change it, then run `make up`. |
 | `WEB_BIND` | no | all interfaces | Address the website port listens on (IPv4 and IPv6 when empty). Set `127.0.0.1` behind a reverse proxy on the same host (step 6). |
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | no | empty | Enables WalletConnect / mobile wallets ([cloud.reown.com](https://cloud.reown.com)). |
-| `NEXT_PUBLIC_ARC_TESTNET_RPC` | no | public RPC | RPC the dashboard uses in the browser for Arc testnet. |
-| `NEXT_PUBLIC_ARC_MAINNET_RPC` | no | public RPC | RPC the dashboard uses in the browser for Arc mainnet. |
 | `COORDINATOR` | no | from deployment file | Override the coordinator address. |
 | `START_BLOCK` | no | deployment block | Block the node starts scanning from. |
-| `POLL_MS` | no | `500` | How often the node checks for requests. |
+| `POLL_MS` | no | `2000` | How often the node checks for requests, in ms. Each check costs ~70 Alchemy compute units: ~90M CU/month at 2000, ~360M at 500. |
 | `PREMIUM_PCT` | no | `50` | Subscription fee on top of gas, %. Used by step 4. |
 | `WRAPPER_PREMIUM_PCT` | no | `60` | Direct-funding fee on top of gas, %. Used by step 4. |
 | `FLAT_FEE_PPM` | no | `0` | Flat fee per request, millionths of a USDC. Used by step 4. |
@@ -153,15 +154,13 @@ Pending requests survive restarts: the node re-reads them from the chain and ans
 - **Website:** stateless. Run more copies on other servers behind your load balancer, or on one host remove the fixed `ports` mapping and use `docker compose up -d --scale web=3` behind a proxy.
 - **Node:** never run more than one per proving key. Two nodes race to answer the same requests and waste gas on reverted transactions. If throughput ever becomes a limit, the next step is batch fulfilment through `BatchArcVRFCoordinator` (deployed, not yet used by the node).
 
-### RPC failover
+### RPC (Alchemy)
 
-```
-RPC_URL=https://rpc.testnet.arc.io,https://rpc.blockdaemon.testnet.arc.io,https://rpc.quicknode.testnet.arc.io,https://rpc.drpc.testnet.arc.io
-```
+Everything goes through Alchemy; nothing uses Arc's public RPCs.
 
-Keep dRPC last: its free plan caps `getLogs` at 100 blocks, below the node's 2,000-block scans.
-
-The node uses the first URL and switches to the next when a call errors or is rate-limited. A paid RPC as the first entry is recommended for production.
+- **Node:** `RPC_URL`. It polls every `POLL_MS` (eth_blockNumber + eth_getLogs over at most 2,000 blocks, within Pay As You Go's 10,000-block limit) and sends answers through the same URL.
+- **Dashboard:** browsers call the web app's `/api/rpc/<chainId>`, which forwards to `ARC_TESTNET_RPC_URL`. The key never reaches the browser. The proxy only allows read methods, only `eth_call`/`eth_getLogs` against this deployment's contracts, and batches of at most 50. It shares identical calls between visitors and caches log ranges older than 64 blocks for an hour.
+- Use two Alchemy apps so the Alchemy dashboard shows the node's and the website's usage separately. If Alchemy rate limits (HTTP 429), the node backs off and retries, and the dashboard shows "Couldn't reach the Arc RPC. Retrying…".
 
 ### Rotating the proving key
 
@@ -179,7 +178,7 @@ On testnet, redeploying with a fresh `.env` is simpler.
 | `make up` fails with `set VRF_PROVING_KEY in .env` | `.env` is missing or a required key is empty. |
 | Node logs `missing env …` or a key error and exits | A key is malformed. Config errors stop the node at once instead of retrying. |
 | Node logs `keyHash … is not registered` and keeps restarting | The deployment used a different proving key, or `COORDINATOR` points elsewhere. Redeploy, or register the key. |
-| `make health` shows `"node":"stale"` | The node can't reach the RPC. Check `make logs`, add fallback URLs to `RPC_URL`. |
+| `make health` shows `"node":"stale"` | The node can't reach Alchemy. Check `make logs`, then the key in `RPC_URL`, your plan and its compute-unit usage in the Alchemy dashboard. |
 | Requests stay "Waiting for proof" | Check the node log for `fulfil … failed`. Common causes: the subscription balance is too low (fund it; the node retries automatically), the node is out of gas (top up), or Arc's gas price is above `MAX_GAS_PRICE_GWEI`. |
 | Dashboard says "Arc VRF isn't deployed on … yet" | The image was built before the deployment file existed. Commit it and run `make update`. |
 | Dashboard can't connect mobile wallets | Set `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` and run `make up`. |

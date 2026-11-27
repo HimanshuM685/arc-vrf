@@ -13,6 +13,8 @@ describe('withRetry', () => {
     expect(isRateLimited(new Error('execution reverted\n  value: 0.429 USDC'))).toBe(false)
     expect(isRateLimited(Object.assign(new Error('call failed'), { cause: { status: 429 } }))).toBe(true)
     expect(isRateLimited(new Error('project ID request rate exceeded'))).toBe(true)
+    // Alchemy: HTTP 200 with a JSON-RPC error code 429.
+    expect(isRateLimited(Object.assign(new Error('Your app has exceeded its compute units per second capacity'), { code: 429 }))).toBe(true)
   })
 
   it('retries rate limits, then returns', async () => {

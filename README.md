@@ -71,7 +71,7 @@ The full design (components, the two payment paths, how the node stays correct a
 | BlockhashStore | `0x57b28753a79edcea25f1790c971135a853ef82e2` |
 | Batch helper | `0x8861dcba2d13d6d0723c9b7e56a0d88758dc8273` |
 
-Chain ID 5042002, RPC `https://rpc.testnet.arc.io`, gas paid in USDC. The source of truth is [`contracts/deployments/5042002.json`](contracts/deployments/5042002.json); the dashboard's Docs page always shows the current addresses.
+Chain ID 5042002, gas paid in USDC. The node and dashboard use [Alchemy](https://www.alchemy.com/rpc/arc-testnet) for RPC (`https://arc-testnet.g.alchemy.com/v2/<key>`). The source of truth is [`contracts/deployments/5042002.json`](contracts/deployments/5042002.json); the dashboard's Docs page always shows the current addresses.
 
 ## Use it from a contract
 
@@ -123,6 +123,8 @@ KEEP=1 pnpm e2e              # leave it running
 pnpm dev                     # http://localhost:3000, defaults to the local chain
 ```
 
+To use Arc Testnet in `pnpm dev`, copy `apps/web/.env.example` to `apps/web/.env.local` and set `ARC_TESTNET_RPC_URL` to your Alchemy URL. It stays server-side: the dashboard reaches it through `/api/rpc`.
+
 Contract tests generate real VRF proofs through the TypeScript prover (`forge test --ffi`). The node tests also check the prover against a real Chainlink proof from Base Sepolia. CI (`.github/workflows/ci.yml`) runs all of this plus the Docker build on every push and pull request.
 
 ## Deploy to production
@@ -132,6 +134,7 @@ Needs Docker, Node 22+, pnpm 10, Foundry and some USDC for gas.
 ```bash
 make install
 make keys               # creates .env with fresh keys, prints 2 addresses
+# set RPC_URL and ARC_TESTNET_RPC_URL in .env to your Alchemy Arc Testnet URLs (Pay As You Go)
 # send USDC to both printed addresses (~2.5 deployer, ~1 node)
 make deploy-contracts   # deploys contracts, writes contracts/deployments/<chainId>.json
 make up                 # builds and starts the website and the VRF node

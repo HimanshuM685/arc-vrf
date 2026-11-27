@@ -35,7 +35,8 @@ health: ## Show web and node health
 update: ## Pull the latest code and redeploy
 	git pull --ff-only && $(MAKE) up
 
-test: ## Contract tests, node tests, web build
+test: ## Contract tests, node tests, web tests and build
 	cd contracts && forge test --ffi
 	pnpm --filter @arc-vrf/node test
+	pnpm --filter web test
 	pnpm --filter web build

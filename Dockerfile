@@ -14,8 +14,6 @@ COPY node node
 COPY apps/web apps/web
 # Public (browser) settings are baked in at build time.
 ARG NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=
-ARG NEXT_PUBLIC_ARC_TESTNET_RPC=
-ARG NEXT_PUBLIC_ARC_MAINNET_RPC=
 RUN pnpm --filter web build && pnpm --filter @arc-vrf/node build
 
 FROM node:22-slim

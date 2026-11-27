@@ -35,9 +35,10 @@ async function getLogsRange<E extends AbiEvent>(
   }
 }
 
-// Largest range public Arc RPCs accept (Blockdaemon: 100k blocks); smaller caps split on error.
-const LOG_CHUNK = 100_000n
-// The fallback transport may answer getBlockNumber and getLogs from different providers, and one
+// Alchemy Pay As You Go allows 10,000-block getLogs ranges. A wider chunk would fail and split every time,
+// and each failed call still costs compute units.
+const LOG_CHUNK = 10_000n
+// getBlockNumber and getLogs may be answered by different backend nodes behind the RPC, and one
 // may be a few blocks behind. The newest blocks are re-read every poll and only cached once older
 // than this, so a lagging provider can't make the cache skip their logs.
 const SETTLE_BLOCKS = 64n

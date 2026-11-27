@@ -1,12 +1,13 @@
-// Public RPCs (e.g. rpc.testnet.arc.io) answer bursts with "Request is being rate limited". viem
-// surfaces that from gas estimation as a contract revert, which is misleading.
+// RPCs answer bursts with HTTP 429 (Alchemy: "exceeded its compute units per second capacity") or
+// "Request is being rate limited". viem can surface that from gas estimation as a contract revert.
 // Range and result-size limits ("block range limit exceeded", -32005 "query returned more than…")
 // are deliberately not matched: callers split the range for those instead of waiting.
-const RATE_LIMITED = /rate.?limit|rate exceeded|too many requests|status: 429\b/i
+const RATE_LIMITED = /rate.?limit|rate exceeded|too many requests|compute units per second|status: 429\b/i
 
 export function isRateLimited(e: unknown): boolean {
-  for (let x = e as { status?: number; cause?: unknown } | undefined, i = 0; x && i < 10; x = x.cause as typeof x, i++) {
-    if (x.status === 429) return true
+  // HTTP 429 (status), or a JSON-RPC error with code 429 (Alchemy answers some limits that way).
+  for (let x = e as { status?: number; code?: number; cause?: unknown } | undefined, i = 0; x && i < 10; x = x.cause as typeof x, i++) {
+    if (x.status === 429 || x.code === 429) return true
   }
   if (!(e instanceof Error)) return RATE_LIMITED.test(String(e))
   const err = e as Error & { details?: string; shortMessage?: string }
@@ -34,8 +35,8 @@ export async function retryRateLimited<T>(
   }
 }
 
-/** RPC_URL may list several endpoints, comma-separated: requests go to the first and fall back to
- * the next when one errors (e.g. Circle's public RPC, then Blockdaemon, then QuickNode). */
+/** RPC_URL is normally one Alchemy URL. It may list several, comma-separated: requests go to the
+ * first and fall back to the next when one errors (e.g. two Alchemy apps). */
 export function parseRpcUrls(rpcUrl: string): string[] {
   const urls = rpcUrl.split(',').map((u) => u.trim()).filter(Boolean)
   if (urls.length === 0) throw new Error('RPC_URL is empty')

@@ -65,3 +65,13 @@ export { isRateLimited, parseRpcUrls }
  * retry after a send that went out fails with "nonce too low" instead of sending twice. */
 export const withRetry = <T>(label: string, fn: () => Promise<T>, attempts = 7, baseMs = 1_000): Promise<T> =>
   retryRateLimited(fn, attempts, baseMs, (ms, i) => log(`${label}: RPC is rate limiting, retrying in ${ms / 1000}s (${i}/${attempts - 1})`))
+
+/** One-line error text for logs and alerts: viem's summary plus the provider's own message
+ * (`details`), which viem keeps off the first line. URLs are masked: they can hold API keys. */
+export function errMsg(e: unknown): string {
+  const err = e as { shortMessage?: string; details?: string; message?: string }
+  const short = err.shortMessage ?? String(err.message ?? e).split('\n')[0]!
+  const details = err.details?.split('\n')[0]
+  const text = details && !short.includes(details) ? `${short} (${details})` : short
+  return text.replace(/\b(?:https?|wss?):\/\/\S+/g, '<url>')
+}

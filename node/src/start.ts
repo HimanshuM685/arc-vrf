@@ -4,7 +4,7 @@ import { createPublicClient, parseEther, type Address, type Hex } from 'viem'
 import { privateKeyToAccount, type PrivateKeyAccount } from 'viem/accounts'
 import { createServer } from 'node:http'
 import { alert } from './alert.ts'
-import { log, rpcTransport } from './chain.ts'
+import { errMsg, log, rpcTransport } from './chain.ts'
 import { runOracle, type NodeStatus } from './oracle.ts'
 
 const env = (k: string) => {
@@ -75,7 +75,7 @@ export async function startFromEnv(signal?: AbortSignal) {
     try {
       await startOnce(keys, status, signal)
     } catch (e) {
-      status.lastError = (e as Error).message.split('\n')[0]
+      status.lastError = errMsg(e)
       log(`node stopped: ${status.lastError}; restarting in 5s`)
       void alert('node-restart', `node stopped and is restarting: ${status.lastError}`)
       await new Promise((r) => setTimeout(r, 5_000))

@@ -6,7 +6,7 @@
 import { arcVRFCoordinatorAbi } from '@arc-vrf/sdk'
 import { formatUnits, type Account, type Address, type Hex } from 'viem'
 import { alert, resetAlert } from './alert.ts'
-import { arcFees, connect, defaultWsUrl, log, wsClient } from './chain.ts'
+import { arcFees, connect, defaultWsUrl, errMsg, isRateLimited, log, wsClient } from './chain.ts'
 import { finalSeed, generateProof, keyHashOf, publicKey } from './proof.ts'
 
 export type OracleOptions = {
@@ -103,7 +103,7 @@ export async function runOracle(o: OracleOptions) {
     if (quietMs <= OUTAGE_MS) return
     if (!outage) resetAlert('rpc-recovered')
     outage = true
-    void alert('rpc-outage', `no successful poll for ${Math.round(quietMs / 1000)}s, requests are not being answered${status?.lastError ? `: ${status.lastError}` : ''}`)
+    void alert('rpc-outage', `safety scan failing for ${Math.round(quietMs / 1000)}s (requests still arrive over WebSocket while it is connected)${status?.lastError ? `: ${status.lastError}` : ''}`)
   }, 10_000)
   watchdog.unref()
 
@@ -132,7 +132,7 @@ export async function runOracle(o: OracleOptions) {
         unwatch()
         if (Date.now() - since > 60_000) wsFails = 0 // a long-lived socket dropped: retry fast
         const ms = backoffMs(wsFails++)
-        log(`websocket ${hostOf(wsUrl)} error, resubscribing in ${ms / 1000}s (scanning every ${pollMs / 1000}s meanwhile): ${(e as Error).message.split('\n')[0]}`)
+        log(`websocket ${hostOf(wsUrl)} error, resubscribing in ${ms / 1000}s (scanning every ${pollMs / 1000}s meanwhile): ${errMsg(e)}`)
         rewatch = setTimeout(() => {
           rewatch = undefined
           watch()
@@ -147,25 +147,33 @@ export async function runOracle(o: OracleOptions) {
     wake()
   })
 
+  const readLogs = (fromBlock: bigint, toBlock: bigint) =>
+    publicClient.getContractEvents({
+      address: o.coordinator,
+      abi: arcVRFCoordinatorAbi,
+      eventName: 'RandomWordsRequested',
+      args: { keyHash },
+      fromBlock,
+      toBlock,
+    })
+  let scanFails = 0
+
   while (!o.signal?.aborted) {
+    let step = 'eth_blockNumber'
     try {
       const head = await publicClient.getBlockNumber()
       while (from <= head) {
         const to = from + range - 1n < head ? from + range - 1n : head
-        const logs = await publicClient.getContractEvents({
-          address: o.coordinator,
-          abi: arcVRFCoordinatorAbi,
-          eventName: 'RandomWordsRequested',
-          args: { keyHash },
-          fromBlock: from,
-          toBlock: to,
-        })
-        for (const l of logs) add(l)
-        from = to + 1n
+        step = `eth_getLogs ${from}-${to}`
+        const r = await readNearHead(readLogs, from, to, head)
+        for (const l of r.logs) add(l)
+        from = r.to + 1n
+        if (r.to < to) break // the newest blocks wait for the next scan
       }
 
       // Stamp the poll before fulfilments: a slow fulfil batch must not look like an outage.
       lastOkPoll = Date.now()
+      scanFails = 0
       if (status) {
         status.lastPollAt = lastOkPoll
         status.head = head
@@ -182,7 +190,7 @@ export async function runOracle(o: OracleOptions) {
         await fulfil(r).catch((e) => {
           r.attempts++
           r.nextTryAt = Date.now() + backoffMs(r.attempts)
-          const msg = (e as Error).message.split('\n')[0]
+          const msg = errMsg(e)
           log(`fulfil ${short(r.requestId)} failed (attempt ${r.attempts}, retrying in ${backoffMs(r.attempts) / 1000}s): ${msg}`)
           if (r.attempts === 5) void alert(`request-${r.requestId}`, `request ${r.requestId} still failing after 5 attempts (still retrying): ${msg}`)
         })
@@ -201,17 +209,19 @@ export async function runOracle(o: OracleOptions) {
             void alert('low-balance', msg)
           }
         } catch (e) {
-          log(`balance check failed: ${(e as Error).message.split('\n')[0]}`)
+          log(`balance check failed: ${errMsg(e)}`)
         }
       }
     } catch (e) {
-      const msg = (e as Error).message.split('\n')[0]
+      const msg = `${step}: ${errMsg(e)}`
+      scanFails++
       if (status) status.lastError = msg
       log(`poll error: ${msg}`)
     }
     // Nap until the next scan, but come back within ~1 s for a request waiting on confirmations
     // or a retry whose backoff ends sooner. Never 0: a persistent error must not spin.
-    let napMs = pollMs
+    // After a failed scan, retry in 2 s, 4 s, 8 s… so a short RPC blip clears before the watchdog fires.
+    let napMs = scanFails ? Math.min(pollMs, 1_000 * 2 ** Math.min(scanFails, 6)) : pollMs
     for (const r of pending.values()) napMs = Math.min(napMs, Math.max(1_000, r.nextTryAt - Date.now()))
     if (!o.signal?.aborted) await nap(napMs)
   }
@@ -282,6 +292,25 @@ export async function runOracle(o: OracleOptions) {
   function forget(id: bigint) {
     pending.delete(id)
     resetAlert(`request-${id}`)
+  }
+}
+
+/** Blocks the scan steps back when the newest range is refused. */
+export const SCAN_LAG = 20n
+
+/** Reads logs for [from, to]. A load-balanced RPC can answer eth_blockNumber from one node and
+ * eth_getLogs from another a few blocks behind, which refuses a range ending past its own head.
+ * Then the read ends SCAN_LAG blocks below head instead; returns where it actually ended (from - 1
+ * when nothing was read). */
+export async function readNearHead<L>(read: (from: bigint, to: bigint) => Promise<L[]>, from: bigint, to: bigint, head: bigint): Promise<{ logs: L[]; to: bigint }> {
+  try {
+    return { logs: await read(from, to), to }
+  } catch (e) {
+    const safe = head - SCAN_LAG
+    if (isRateLimited(e) || to <= safe) throw e
+    // Every block in the range is that new: nothing to read yet, try again next scan.
+    if (safe < from) return { logs: [], to: from - 1n }
+    return { logs: await read(from, safe), to: safe }
   }
 }
 
